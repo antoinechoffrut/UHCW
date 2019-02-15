@@ -1,23 +1,23 @@
 # Blood test appointment booking via UHCW's web portal #
 
 
+## Context
 
 The [University Hospitals - Coventry &
-Warwickshire](https://www.uhcw.nhs.uk) (UHCW) has a set up a [web
+Warwickshire](https://www.uhcw.nhs.uk) (UHCW) has set up a [web
 portal](https://www.swiftqueue.co.uk/uhcw.php) to facilitate the
-booking of blood test appointments in Coventry (UK) from 18 test
-centers. 
+booking of blood test appointments in Coventry (UK) from 18
+participating test centers.
 
 <p align="center">
 <img src="UHCW-swift-screenshot.png" alt="UHCW online appointment system" width="400"/>
 </p>
 
-The dataset `attendance.csv` contains information about available
-appointments at the participating test centers.  The data is collected
-hourly (approximately, sometimes more often).
 
 ## Goals
-In this project we aim to address the following types of questions.
+Collecting data about the available appointments from the portal (see a
+section below), in this project we aim to address the following types
+of questions.
 
 1. Which test centers have the longest or shortest wait time to the
      next available appointment?  
@@ -27,9 +27,11 @@ In this project we aim to address the following types of questions.
    behavior of the patients?
 
 **Note.** This project is in its preliminary phase.  For speed, we
-work with a relatively small subset of the full dataset `appointments.csv`.
+work with a relatively small subset of the full dataset.
 
-## Understanding the UHCW dataset
+## Preliminary phase: understanding the UHCW dataset
+Details about the datasets, `attendance.csv` and `centers.csv`, are given below.  
+
 Following is a summary of preliminary findings obtained from the
 Jupyter notebook `UHCW_EDA.ipynb`.
 
@@ -49,14 +51,14 @@ Jupyter notebook `UHCW_EDA.ipynb`.
 - Most centers which deliver tests of multiple types put the appointments for all types at the same time.
 
 
-## Case study with center 10254
-Let's take a look for example at the data for center 10254.
-Information on the test centers can be extracted out of `centers.csv`.
-A blue dot on the table below indicates an available appointment at
-the time of scraping.
+## Case study with center 10188
+Let's take a look for example at the data for center 10254.  A blue
+dot on the table below indicates an available appointment at the time
+of scraping.  (Given the scale of the plot, all appointments for a
+given day appear as one blue dot.)
 
 <p align="center">
-<img src="center-10254-schedule.png" alt="Timeline of available appointments at center 10254"/>
+<img src="center-10188-Blood-Test-schedule.png" alt="Timeline of available appointments at center 10188" width="1000"/>
 </p>
 
 It is not very easy to read, but it illustrates some of the features
@@ -65,45 +67,42 @@ of the dataset.
 - The data was collected over a period of roughly 24 hours.  Also, the
   data was not collected at regular times: during the night, data was
   collected around each hour.  During the day, data was collected
-  mostly regular, with short gaps.  This is due to the fact that the
+  mostly regularly, with short gaps.  This is due to the fact that the
   data was collected on my personal laptop, which goes to sleep when
   not used, or which I had to close when moving places.  These
   technical challenges are by now mostly overcome, as I am now
-  collecting the data on a separate laptop dedicated for this purpose.
+  collecting the data on a separate laptop dedicated for this
+  purpose.  
 - The platform does not display all appointments in the
-  future. Rather, only the appointments up to about 21 March 2019 are
+  future. Rather, only the appointments up to about 9 March 2019 are
   open for booking.  In fact, a closer look reveals that new
-  appointments on 20 Mar 2019 are open for booking starting at
-  midnight on 16 Jan 2019.  
-- Most appointments are booked for the following week, while all later
-  appointments appear to be available.
+  appointments on 9 Mar 2019 are open for booking starting at
+  midnight on 16 Jan 2019.  This suggests that appointments for a new
+  day are made available online at the same time, at midnight on a
+  fixed number of days ahead of the appointment day.  This hypothesis
+  is tested more thoroughly in `UHCW_EDA.ipynb` for all test centers
+  and all test types.  
+
+
+
+The figure above displays raw datat (filtered for a specific test
+  center and test type), from which we wish to extract meaningful and
+  accurate information from this data.     
 
 ### Reconstructing the booking history
-An important part of this project is to extract meaningful and
-accurate information from this data.  In particular, the code in the
-notebook `UHCW_reconstruction.ipynb` **reconstructs** the booking
-history of the appointments at all test centers.  For example, the
-code produces a representation of the booking history such as in the
-image below, where a blue cross represents a booking and a red cross
-represents a cancellation at center 10254.
+The code in the notebook `UHCW_reconstruction.ipynb` **reconstructs**
+the booking history of the appointments at all test centers.  For
+example, the code produces a representation of the booking history
+such as in the image below, where a blue cross represents a booking
+and an orange cross represents a cancellation at center 10188 (test
+type "Blood Test").
 
 
 <p align="center">
-<img src="center-10254-history-with-artefacts.png" alt="Booking history (with artefacts) at center 10254"/>
+<img src="center-10188-Blood-Test-history.png" alt="Booking history for center 10188 (Blood Test)"/>
 </p>
 
-
-### Dealing with artefacts
-From the plot it would appear that appointments have been cancelled on
-20 Mar 2019.  This turns out to be an artefact of the appointments
-being put online for booking only for roughly two months ahead of
-time.  This is the kind of issue that this project needs to handle in
-its preliminary phase.
-
-
-
-
-## Datasets
+## More on the data
 
 
 The dataset `centers.csv` contains the following information on each *test center*:  
@@ -135,4 +134,6 @@ contain the following information on each *appointment*:
 - The Jupyter notebook `UHCW_EDA.ipynb` helps to understand the UHCW
   dataset.  
 - The Jupyter notebook `UHCW_reconstruction.ipynb` reconstructs the
-  booking history of the appointments from the dataset.
+  booking history of the appointments from the dataset.  
+- The file `UHCW.py` contains the custom functions used in the
+  notebooks.  
