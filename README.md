@@ -10,7 +10,7 @@ booking of blood test appointments in Coventry (UK) from 18
 participating test centers.
 
 <p align="center">
-<img src="UHCW-swift-screenshot.png" alt="UHCW online appointment system" width="400"/>
+b<img src="UHCW-swift-screenshot.png" alt="UHCW online appointment system" width="400"/>
 </p>
 
 
@@ -35,24 +35,33 @@ Details about the datasets, `attendance.csv` and `centers.csv`, are given below.
 Following is a summary of preliminary findings obtained from the
 Jupyter notebook `UHCW_EDA.ipynb`.
 
-- There are:
-  - 18 test centers,
-  - serving 2 age groups ("adult" and "child"),
+- There are:  
+  - 18 test centers,  
+  - serving 2 age groups ("adult" and "child"),  
   - delivering collectively a total of 5 different test types,
-    labeled:
-     - 'Blood Test'
-     - 'INR Test',
-     - 'Fasting Bloods',
-     - 'Non Fasting Bloods',
-     - 'Glucose Tolerance Test'
-- Each test center serves only 1 age group.
-- Each center delivers 1, 2, or 3 different types of test.
-- The centers open their appointments for booking with a varying number of days ahead of time, between 52 and 125.
-- Most centers which deliver tests of multiple types put the appointments for all types at the same time.
+    labeled:  
+     - 'Blood Test'  
+     - 'INR Test',  
+     - 'Fasting Bloods',  
+     - 'Non Fasting Bloods',  
+     - 'Glucose Tolerance Test'  
+- Each test center serves only 1 age group.  
+- Each center delivers 1, 2, or 3 different types of test.  
+- The centers open their appointments for booking with a varying
+  number of days ahead of time, between 52 and 125.  The distribution,
+  across the test centers, is depicted in the figure below.  
+- Most centers which deliver tests of multiple types put the
+  appointments for all types at the same time.  
+
+<p align="center"> 
+<img src="online-posting-period-distribution.png" alt="Distribution,
+across test centers, of number of days appointments go online prior to
+appointment date " width="1000"/>
+</p>
 
 
 ## Case study with center 10188
-Let's take a look for example at the data for center 10254.  A blue
+Let's take a look for example at the data for center 10188.  A blue
 dot on the table below indicates an available appointment at the time
 of scraping.  (Given the scale of the plot, all appointments for a
 given day appear as one blue dot.)
