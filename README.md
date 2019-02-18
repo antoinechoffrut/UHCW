@@ -47,17 +47,27 @@ Jupyter notebook `UHCW_EDA.ipynb`.
      - 'Glucose Tolerance Test'  
 - Each test center serves only 1 age group.  
 - Each center delivers 1, 2, or 3 different types of test.  
+- Most centers which deliver tests of multiple types put the
+  appointments for all types at the same time.  
+- The test centers offer a varying number of appointments.  This fact
+  combine with the variability of the number of days these
+  appointments are available for online booking means that the number
+  of records varies across test centers, as depicted in the figure
+  below.  
+  <p align="center"> 
+  <img src="number-of-records-per-center-distribution.png" alt="Distribution,
+  across test centers, of number of records" width="1000"/>
+  </p>
 - The centers open their appointments for booking with a varying
   number of days ahead of time, between 52 and 125.  The distribution,
   across the test centers, is depicted in the figure below.  
-- Most centers which deliver tests of multiple types put the
-  appointments for all types at the same time.  
+  <p align="center"> 
+  <img src="online-posting-period-distribution.png" alt="Distribution,
+  across test centers, of number of days appointments go online prior to
+  appointment date" width="1000"/>
+  </p>
 
-<p align="center"> 
-<img src="online-posting-period-distribution.png" alt="Distribution,
-across test centers, of number of days appointments go online prior to
-appointment date " width="1000"/>
-</p>
+
 
 
 ## Case study with center 10188
