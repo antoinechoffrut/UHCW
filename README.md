@@ -154,5 +154,5 @@ contain the following information on each *appointment*:
   dataset.  
 - The Jupyter notebook `UHCW_reconstruction.ipynb` reconstructs the
   booking history of the appointments from the dataset.  
-- The file `UHCW.py` contains the custom functions used in the
+- The file `UHCW.py` contains custom functions and classes used in the
   notebooks.  
