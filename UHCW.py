@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Module with custom functions for UHCW project."""
+"""Module with custom functions and classes for UHCW project."""
 import os
 import pytz
 import pandas as pd
@@ -15,31 +15,37 @@ IMG_DIR = os.path.join(os.path.expanduser("~"), "Projects/UHCW/IMAGE_FILES")
 # BASIC DATAFRAME MANIPULATION
 
 
-def prepare_UHCW_dataframe(raw_data, timezone_conversion=False):
-    df = raw_data.copy()
+def prepare_UHCW_dataframe(raw_data):
+    """Convert columns of input dataframe to appropriate types.
 
-    df = df[[
-        'appointment timestamp',
-        'center id',
-        'center age group',
-        'test type',
-        'grab timestamp'
-    ]]
-    df.columns = \
-        ['appointment', 'id', 'age group', 'test type', 'grab']
+    Parameters
+    ----------
+
+    raw_data:
+
+    dataframe containing data from UHCW online appointment booking
+    system.  Presumed to have columns 'id', 'test type', 'age group',
+    'grab', 'appointment'.  Each row represents an available
+    appointment at a given time (grab):
+    - id: id number of test center offering appointment
+    - test type: type of blood test administered
+    - age group: age group servied (adult or child)
+    - grab: timestamp (UTC) of collection of data
+    - appointment: timestamp (local, Coventry, UK) of appointment
+    """
+    df = raw_data.copy()
 
     df['appointment'] = pd.to_datetime(df['appointment'])
     df['grab'] = pd.to_datetime(df['grab'])
 
     df = df[['id', 'test type', 'age group', 'grab', 'appointment']]
 
-    if timezone_conversion:
-        df['appointment'] = df['appointment'].apply(
-            lambda ts: ts.tz_localize(tz_london)
-        )
-        df['grab'] = df['grab'].apply(
-            lambda ts: ts.tz_localize(tz_utc).tz_convert(tz_london)
-        )
+    df['appointment'] = df['appointment'].apply(
+        lambda ts: ts.tz_localize(tz_london)
+    )
+    df['grab'] = df['grab'].apply(
+        lambda ts: ts.tz_localize(tz_utc).tz_convert(tz_london)
+    )
 
     return df
 
@@ -49,18 +55,19 @@ def filter_center(df, center_id, test_type):
 
     Parameters
     ----------
-    df: pandas.DataFrame
-      Assumed to have 'id' and 'test type' as column names
-    center_id : int
-      id of desired test center, int
-    test_type : str
-      Name of test type
+    df:
+
+    dataframe, assumed to have 'id' and 'test type' as column names
+    center_id (int) id of desired test center, test_type (str) name of
+    test type
 
     Returns
     -------
 
-    filtered : pandas.DataFrame pandas dataframe with records from df
-    corresponding to desired test center and test type
+    filtered:
+
+    dataframe with records from df corresponding to desired test
+    center and test type
 
     """
     idxs = (df['id'] == center_id) & (df['test type'] == test_type)
@@ -69,175 +76,110 @@ def filter_center(df, center_id, test_type):
     return filtered
 
 
-def get_last_bookings(df):
-    """Returns a dataframe with last bookings.
+def get_timegrid(schedule):
+    """Generate grid of (grab, appointment) pairs appearing in
+    dataset.
 
     Parameters
     ----------
-    df: dataframe with four columns 'id', 'test type', 'appointment', 'grab'
+
+    schedule:
+
+    Dataframe with columns 'id', 'test type', 'grab', 'appointment',
+    recording available appointments at grab times.
 
     Returns
     -------
-    df_last_booking: dataframe with four columns:
-                     'id', 'test type', 'appointment', 'last booking',
-                     where for each row the 'last booking' is the timestamp
-                     of the last booing of the 'appointment'.
+
+    timegrid:
+
+    Dataframe with columns 'id', 'test type', 'grab', 'appointment',
+    which, for each (id, test type) pair, contains all pairs (grab,
+    appointment) where grab and appointment appearing in dataset.
 
     """
-    last_grab = df['grab'].max()
+    grabs = \
+        schedule.loc[
+            :, ['id', 'test type', 'grab']
+        ].drop_duplicates().reset_index(drop=True)
+    appointments = \
+        schedule.loc[
+            :, ['id', 'test type', 'appointment']
+        ].drop_duplicates().reset_index(drop=True)
 
-    df_last_bookings = pd.DataFrame()
-    df_last_bookings['last booking'] = df.groupby(
-        ['id', 'test type', 'appointment']
-    )['grab'].max()
-
-    df_last_bookings.drop(
-        df_last_bookings[df_last_bookings['last booking'] == last_grab].index,
-        inplace=True
+    timegrid = pd.merge(
+        left=grabs,
+        right=appointments,
+        on=['id', 'test type'],
+        how='outer'
     )
-    df_last_bookings.reset_index(inplace=True)
 
-    return df_last_bookings
-
-
-def cartesianProduct(left, right):
-    """Returns Cartesian product of dataframe.
-    From https://stackoverflow.com/a/53699013/9472676 with some arrangement:
-    """
-    # Rename columns if "key" already exists.
-    if "key" in list(left.columns):
-        key_x = "key_x"
-    else:
-        key_x = ""
-    if "key" in list(right.columns):
-        key_y = "key_x"
-    else:
-        key_y = ""
-    new_key = hash("".join(list(left.columns) + list(right.columns)))
-    left.rename(index=str, columns={"key": str(new_key)}, inplace=True)
-    right.rename(index=str, columns={"key": str(new_key)}, inplace=True)
-    # Calculate Cartesian product
-    df_cartesian = left.assign(key=1).merge(
-        right.assign(key=1), on='key'
-    ).drop('key', 1)
-    # Rename columns back to "key" if they had been changed
-    left.rename(index=str, columns={str(new_key): "key"}, inplace=True)
-    right.rename(index=str, columns={str(new_key): "key"}, inplace=True)
-    if (key_x != "") and (key_y != ""):
-        df_cartesian.rename(
-            index=str,
-            columns={str(new_key)+"_x": "key_x"},
-            inplace=True
-        )
-        df_cartesian.rename(
-            index=str,
-            columns={str(new_key)+"_y": "key_y"},
-            inplace=True
-        )
-    else:
-        df_cartesian.rename(
-            index=str,
-            columns={str(new_key): "key"},
-            inplace=True
-        )
-    return df_cartesian
-
-
-def get_timegrid(df):
-    """Generate the timegrid from the full dataset."""
-    grabs = df.loc[:, ['grab']].drop_duplicates().reset_index(
-        drop=True
-    ).sort_values(
-        by='grab', ascending=True
-    )
-    appointments = df.loc[
-        :, ['appointment']
-    ].drop_duplicates().reset_index(drop=True).sort_values(
-        by='appointment',
-        ascending=True
-    )
-    timegrid = cartesianProduct(grabs, appointments)
-    timegrid.query('grab <= appointment', inplace=True)
     return timegrid
 
 
-def dataframe_duplication(df1, df2):
-    """Duplicate a dataframe by size of multiindex of another dataframe.
-
-    Parameters
-    ----------
-    df1: dataframe
-    df2: dataframe with columns including 'id' and 'test type'
-
-    Returns
-    -------
-    duplicate: dataframe duplicated as many times as (id, test type)
-    pairs in df
-    """
-    # Need a copy of `df1` for each (`id`, `test type`) pair in `df2`
-    df1_duplicate = pd.concat(
-        [
-            df1.assign(id=id_item).assign(type=type_item)
-            for id_item in list(df2['id'].unique())
-            for type_item in list(df2['test type'].unique())
-        ]
-    )
-    df1_duplicate.rename(
-        index=str,
-        columns={'type': 'test type'},
-        inplace=True
-    )
-    df1_duplicate = df1_duplicate[['id', 'test type', 'grab', 'appointment']]
-    df1_duplicate.sort_values(
-        ['id', 'test type', 'grab', 'appointment'], inplace=True
-    )
-
-    return df1_duplicate
-
-
-def compare_against_timegrid(df, timegrid):
+def compare_against_timegrid(schedule, timegrid):
     """Compare records of available appointments against timegrid.
 
     Parameters
     ----------
-    df       : dataframe with records of available appointments
-    timegrid : timegrid of appointments
+
+    schedule:
+
+    Dataframe with records of available appointments
+
+    timegrid:
+
+    Timegrid of appointments
 
     Returns
     -------
-    df_compare : dataframe indicating whether appointments are
-    available at all grab timestamps
+    schedule_against_timegrid:
+
+    Dataframe indicating whether appointments are available at all
+    grab timestamps
 
     """
-    timegrid_duplicate = dataframe_duplication(timegrid, df)
-    df_compare = pd.merge(
-        timegrid_duplicate,
-        df.assign(key=1),
+    schedule_against_timegrid = pd.merge(
+        timegrid,               # timegrid_duplicate
+        schedule.assign(key=1),
         on=['id', 'test type', 'appointment', 'grab'],
         how='outer'
     )
-    df_compare.fillna(0, inplace=True)
-    df_compare['key'] = df_compare['key'].astype(int)
+    schedule_against_timegrid.fillna(0, inplace=True)
+    schedule_against_timegrid['key'] = \
+        schedule_against_timegrid['key'].astype(int)
 
-    return df_compare
+    return schedule_against_timegrid
 
 
 def label_action(df, col='key'):
-    """
-    Detects booking and cancellation in dataframe.
+    """Detects booking and cancellation in dataframe.
 
-    Parameter
-    ---------
-    df: dataframe with 0's and 1's
+    The dataframe
+
+    Parameters
+    ----------
+
+    df:
+
+    dataframe with 0's and 1's.  Rows are assumed to be labeled by
+    timestamps representing time of data collection, and the column
+    'key' represents the availability of one appointment: 0  if it is
+    available, 1 if not.
 
     Returns
     -------
-    df, modified in place, replacing a transition from 0 to 1 with "cancel",
-    a transition from 1 to 0 with "book",
+
+    df:
+
+    the dataframe passed in, modified in place, replacing a transition
+    from 0 to 1 with "cancel", a transition from 1 to 0 with "book",
     and "none" otherwise.
+
     """
     df[col] = df[col] - df[col].shift(1)
-    df[col].fillna(method='bfill', inplace=True)
+    # df[col].fillna(method='bfill', inplace=True)
+    df[col].fillna(0, inplace=True)
     df[col] = df[col].astype(int)
     df[col] = df[col].apply(
         lambda delta: "cancel" if delta == 1 else (
@@ -246,121 +188,147 @@ def label_action(df, col='key'):
     return df
 
 
-def get_first_appearance(df):
-    """Calculate date of first appearance for each appointment."""
-    df_first_appearance = df.groupby(
+def get_first_appearance(schedule):
+    """Calculate date of first appearance for each appointment.
+
+
+    Parameters:
+    ----------
+
+    schedule:
+
+    dataframe representing available appointments at grab times.
+    Assumed with columns 'id', 'test type', 'grab', 'appointment'.
+
+
+    first_appearance:
+
+    dataframe containg timestamp of first appearance of appointments
+
+    WARNING:
+
+    Caution with type conversions: groupby will convert a
+    timezone-aware datetime to an object (string), and using
+    reset_index and pandas.to_datetime withtou caution may lead to
+    errors.  Best is to convert to UTC at the beginning, and convert
+    back to London timezone at the end.
+
+    """
+    sched = schedule.copy()
+    sched['appointment'] = sched['appointment'].apply(
+        lambda ts: ts.tz_convert(tz_utc)
+    )
+    first_appearance = sched.groupby(
         ['id', 'test type', 'appointment']
     )[['grab']].min()
-    df_first_appearance.rename(
+    first_appearance.rename(
         index=str,
         columns={'grab': 'first appearance'},
         inplace=True
     )
-    df_first_appearance.reset_index(inplace=True)
-    df_first_appearance['appointment'] = pd.to_datetime(
-        df_first_appearance['appointment']
+    first_appearance.reset_index(inplace=True)
+    first_appearance['appointment'] = pd.to_datetime(
+        first_appearance['appointment']
     )
-    df_first_appearance['appointment'] = \
-        df_first_appearance['appointment'].apply(
-            lambda ts: ts.tz_localize(tz_london)
+    first_appearance['appointment'] = \
+        first_appearance['appointment'].apply(
+            lambda ts: ts.tz_localize(tz_utc).tz_convert(tz_london)
         )
-    df_first_appearance['id'] = df_first_appearance['id'].astype(int)
+    first_appearance['id'] = first_appearance['id'].astype(int)
 
-    return df_first_appearance
+    return first_appearance
 
 
-def get_history(df, timegrid):
-    """Calculates history of appointments in dataframe."""
-    df_compare = compare_against_timegrid(df, timegrid)
-    df_action = df_compare.groupby(
-        ['id', 'test type', 'appointment']
-    ).apply(label_action)
-    df_action.rename(index=str, columns={'key': 'action'}, inplace=True)
-    df_history = df_action.loc[df_action['action'] != "none", :]
-    df_first_appearance = get_first_appearance(df)
+def get_first_posting(schedule):
+    """Calculate date of first posting for each appointment.
 
-    # REMOVE ARTEFACTS:
-    # appointment marked 'cancel' when first appears on schedule
-    df_history = pd.merge(
-        left=df_history,
-        right=df_first_appearance,
-        left_on=['id', 'test type', 'appointment', 'grab'],
-        right_on=['id', 'test type', 'appointment', 'first appearance'],
-        how='left'
+
+    Parameters:
+    ----------
+
+    schedule:
+
+    dataframe representing available appointments at grab times.
+    Assumed with columns 'id', 'test type', 'grab', 'appointment'.
+
+
+    first_appearance:
+
+    dataframe containg timestamp of first appearance of appointments
+
+    WARNING:
+
+    Caution with type conversions: groupby will convert a
+    timezone-aware datetime to an object (string), and using
+    reset_index and pandas.to_datetime withtou caution may lead to
+    errors.  Best is to convert to UTC at the beginning, and convert
+    back to London timezone at the end.
+
+    """
+    sched = schedule.copy()
+    sched['appointment'] = sched['appointment'].apply(
+        lambda ts: ts.tz_convert(tz_utc)
     )
-    df_history = df_history.loc[
-        df_history['first appearance'].isna()
-        | (df_history['action'] == 'book')
-    ]
-    df_history.drop('first appearance', axis=1, inplace=True)
+    sched['appointment'] = sched['appointment'].apply(
+        lambda ts: ts.replace(hour=0, minute=0, second=0)
+    )
+    sched.rename(
+        index=str,
+        columns={'appointment': 'appointment date'},
+        inplace=True
+    )
+    first_posting = sched.groupby(
+        ['id', 'test type', 'appointment date']
+    )[['grab']].min()
+    first_posting.rename(
+        index=str,
+        columns={'grab': 'first posting'},
+        inplace=True
+    )
+    first_posting.reset_index(inplace=True)
+    first_posting['appointment date'] = pd.to_datetime(
+        first_posting['appointment date']
+    )
+    first_posting['appointment date'] = \
+        first_posting['appointment date'].apply(
+            lambda ts: ts.tz_localize(tz_utc).tz_convert(tz_london)
+        )
+    first_posting['id'] = first_posting['id'].astype(int)
 
-    return df_history
-
-
-def get_plot_style(feature="schedule"):
-    """Returns plot style: marker and markersize."""
-    if feature == "schedule":
-        marker = "."
-        markersize = "3"
-    elif feature == "last booking":
-        marker = "+"
-        markersize = "10"
-    elif feature == "history":
-        marker = "+"
-        markersize = "10"
-    return {'marker': marker, 'markersize': markersize, 'linestyle': ""}
-
-
-def get_plot_labels(
-        center_id=None,
-        test_type=None,
-        x="appointment",
-        y="grab",
-        feature="schedule"
-):
-    """Returns title, x- and y-axes labels."""
-    # Title
-    if feature == "schedule":
-        title = "Available appointments for center {0} ({1})".format(
-            center_id,
-            test_type)
-    elif feature == "last booking":
-        title = "Last bookings for center {0} ({1})".format(
-            center_id,
-            test_type)
-    elif feature == "history":
-        title = "History for center {0} ({1})".format(
-            center_id,
-            test_type)
-
-    # x- and y-axes label
-    if feature == "schedule":
-        if x == "appointment":
-            x_label = "Appointment"
-            y_label = "Data collection"
-        else:
-            x_label = "Data collection"
-            y_label = "Appointment"
-    elif feature == "last booking":
-        if x == "appointment":
-            x_label = "Appointment"
-            y_label = "Last booking"
-        else:
-            x_label = "Last booking"
-            y_label = "Appointment"
-    elif feature == "history":
-        if x == "appointment":
-            x_label = "Appointment"
-            y_label = "Action"
-        else:
-            x_label = "Action"
-            y_label = "Appointment"
-
-    return title, x_label, y_label
+    return first_posting
 
 
 def get_ticks(s, freq):
-    """Returns ticks and tick labels."""
+    """Return ticks and tick labels from a list of datetimes,
+    depending on frequency.
+
+    Parameters:
+    ----------
+
+    s:
+
+    series with datetime values (in London timezone)
+
+    freq:
+
+    desired frequency of ticks, i.e. 'temporal spacing' on plot axis.
+
+    Returns:
+    -------
+
+    date_range, tick_labels where:
+
+    date_range:
+
+    datetime index object containing the timestamps to use for axis
+    ticks on plots.
+
+    tick_labels:
+
+    list of labels to be used as axis tick labels.
+
+
+    """
 
     if freq in ["D", "W"]:
         fmt = "%a %d %b"
@@ -379,6 +347,9 @@ def get_ticks(s, freq):
         ]
     elif freq in "D":
         ticklabels = [
+            pd.to_datetime(ts).strftime("%H:%M")
+            if (ts.hour == 12)
+            else
             pd.to_datetime(ts).strftime(fmt)
             for ts in date_range
         ]
@@ -392,120 +363,554 @@ def get_ticks(s, freq):
 
 
 def get_date_range(s, freq="D"):
-    """Returns date range for tick labels."""
+    """Returns date range for tick labels.
+
+    Parameters:
+    ----------
+
+    s:
+
+    series with datetime values (in London timezone)
+
+    freq:
+
+    desired frequency of ticks, i.e. 'temporal spacing' on plot axis.
+
+    Returns:
+    -------
+
+    date_range:
+
+    datetime index object containing the timestamps to use for axis
+    ticks on plots
+
+    """
     ts_min = s.min()
     ts_max = s.max()
     if freq == "W":
-        s_date_range = pd.date_range(
+        date_range = pd.date_range(
             pd.Timestamp(ts_min.year, ts_min.month, ts_min.day),
             pd.Timestamp(ts_max.year, ts_max.month, ts_max.day),
             freq="W-MON"
         )
-        s_date_range = pd.DatetimeIndex([ts_min.date()]).append(
-            s_date_range).append(
+        date_range = pd.DatetimeIndex([ts_min.date()]).append(
+            date_range).append(
             pd.DatetimeIndex([ts_max.date()])
         )
     elif freq == "D":
-        s_date_range = pd.date_range(
+        # date_range = pd.date_range(
+        #     pd.Timestamp(ts_min.year, ts_min.month, ts_min.day),
+        #     pd.Timestamp(ts_max.year, ts_max.month, ts_max.day),
+        #     freq="D"
+        # )
+        date_range = pd.date_range(
             pd.Timestamp(ts_min.year, ts_min.month, ts_min.day),
             pd.Timestamp(ts_max.year, ts_max.month, ts_max.day),
-            freq="D"
+            freq="12H"
         )
     elif freq == "H":
-        s_date_range = pd.date_range(
+        date_range = pd.date_range(
             pd.Timestamp(
-                ts_min.year, ts_min.month, ts_min.day, 3*((ts_min.hour-1)//3)
+                ts_min.year, ts_min.month, ts_min.day, 3*(ts_min.hour//3)
             ),
             pd.Timestamp(
-                ts_max.year, ts_max.month, ts_max.day, 3*((ts_max.hour+1)//3)
+                ts_max.year, ts_max.month, ts_max.day, 3*(ts_max.hour//3)
             ),
             freq="3H"
         )
 
-    return s_date_range
+    return date_range
 
 
-def UHCW_plot(
-    df,
-    x_freq="W",
-    y_freq="H",
-    savefigure=False,
-    figsize=(16, 6)
-):
-    """Custom dataframe plot."""
+def build_center_test_info(df):
+    """Create list of test centers with their test types.
 
-    # Determine: center id, test type, and feature
-    center_id = df.loc[df.index[0], 'id']
-    test_type = df.loc[df.index[0], 'test type']
+    Parameters:
+    ----------
 
-    df_columns = list(df.columns)
-    df_columns.pop(df_columns.index('id'))
-    df_columns.pop(df_columns.index('test type'))
-    if set(df_columns) == {'appointment', 'grab'}:
-        feature = "schedule"
-    elif set(df_columns) == {'appointment', 'last booking'}:
-        feature = "last booking"
-    elif set(df_columns) == {'appointment', 'grab', 'action'}:
-        feature = "history"
+    df:
 
-    x, y = df_columns[0], df_columns[1]
+    dataframe whose columns contain 'id', 'test type', and 'age group'
 
-    # Determine plot style
-    plot_style = get_plot_style(feature)
+    Returns:
+    -------
 
-    # Determine title, x- and y-axes labels
-    title, x_label, y_label = \
-        get_plot_labels(center_id, test_type, x, y, feature)
+    center_info:
 
-    # x- and y-axes ticks and tick labels
-    x_date_range, x_tick_labels = get_ticks(df[x], x_freq)
-    y_date_range, y_tick_labels = get_ticks(df[y], y_freq)
+    dataframe indexed by center id, and two columns: 'age group'
+    indicating age group serviced at test center, and 'test types', a
+    list of test types administered at test center.
 
-    # Plot
-    if feature == 'history':
-        fig, ax = plt.subplots()
-        legend_text = []
-        for action in ['book', 'cancel']:
-            df_aux = df.loc[df['action'] == action, [x, y]]
-            if not df_aux.empty:
-                legend_text.append(action)
-                df_aux.plot(
-                    x=x,
-                    y=y,
-                    **plot_style,
-                    figsize=figsize,
-                    ax=ax
+    TODO: there has to be a more natural way to implement this function.
+
+    """
+    center_test_types =  \
+        df.groupby('id')['test type'].unique().rename(
+            "test types"
+        ).to_frame()
+    center_age_group = \
+        df.groupby('id')['age group'].unique().to_frame()
+
+    center_info = \
+        pd.merge(
+            center_test_types,
+            center_age_group,
+            on='id',
+            how='outer'
+        )
+
+    return center_info
+
+
+class UHCW:
+    """Main data structure in UHCW project.
+
+    A UNCW object is instantiated from dataframe raw_data
+    The main attributes are:
+    - center_info: contains information about id, age group, and test
+    types of centers present in the dataset
+    - schedule: essentially the data passed in at instantiated, except
+    that it has been converted to proper types, and the age group
+    column removed from raw_data
+    - timegrid: lists of pairs (grab, appointment) present in the
+    dataset, labeled by (id, test type) pairs
+    - first_appearance: timestamps where appointments appear first in
+    the data set
+    - hitory: history of appointments, i.e. all bookings and
+    cancellations detected in dataset
+    - naive_history: this is an intermediate dataframe, kept for
+    debugging purposes.
+    Only the attributes center_info and schedule is generated at
+    instantiation. The others are generatedy via 'build' methods.
+
+    NOTE ON TIMEZONES.
+
+    All datetime values will be in the London-timezone.  When
+    performing certain operations, these will sometimes be converted
+    to other types (object, i.e. string).  In order to avoid errors,
+    it is safer to begin with a conversion to the UTC standard, and
+    end with a conversion back to the London timezone (with the
+    appropriate) localization in between.
+
+    """
+    def __init__(self, raw_data):
+        """Instatiation of object of class UHCW.
+
+        Parameters
+        ----------
+
+        raw_data:
+
+        dataframe containing data from UHCW online appointment booking
+        system.  Presumed to have columns 'id', 'test type', 'age group',
+        'grab', 'appointment'.  Each row represents an available
+        appointment at a given time (grab):
+        - id: id number of test center offering appointment
+        - test type: type of blood test administered
+        - age group: age group servied (adult or child)
+        - grab: timestamp (UTC) of collection of data
+        - appointment: timestamp (local, Coventry, UK) of appointment
+
+        The columns are assumed of type object (string) and converted
+        at instantiation.
+
+        """
+        self.schedule = prepare_UHCW_dataframe(raw_data)
+        self.center_info = build_center_test_info(self.schedule)
+        self.schedule.drop('age group', axis=1, inplace=True)
+        self.timegrid = None
+        self.first_appearance = None
+        self.first_posting = None
+        self.naive_history = None
+        self.history = None
+
+    def build_timegrid(self):
+        """Generate timegrid of schedule attribute and assign it to
+        timegrid attribute of object."""
+
+        self.timegrid = get_timegrid(self.schedule)
+
+        return None
+
+    def build_first_appearance(self):
+        """Generate dataframe of first appearance datetimes and assign
+        it to first_appearance attribute of object."""
+
+        self.first_appearance = get_first_appearance(self.schedule)
+
+        return None
+
+    def build_first_posting(self):
+        """Generate dataframe of first datetimes and assign it to
+        first_appearance attribute of object.
+
+        """
+
+        self.first_posting = get_first_posting(self.schedule)
+
+        return None
+
+    def build_naive_history(self):
+        """Generate booking history without correcting for artefacts.
+
+        Attempts to create history of appointments, i.e. all bookings
+        and cancellations of each appointment in dataset.  This is
+        only an auxiliary object, as artefacts need to be corrected.
+
+        Artefacts are due to the appointments being online an
+        arbitrary number of days prior to the date.  Their
+        'disappearance' is incorrectly interpreted as cancellation.
+
+        Parameters:
+        ----------
+
+        self
+
+        Returns:
+        -------
+
+        naive_history:
+
+        dataframe with mostly correct bookings and cancellations,
+        where artefacts are yet to be corrected.
+
+        """
+
+        # Will need timegrid
+        if self.timegrid is None:
+            self.build_timegrid()
+
+        df_compare = compare_against_timegrid(
+            self.schedule, self.timegrid
+        )
+        # Detect bookings and cancellations
+        df_action = df_compare.groupby(
+            ['id', 'test type', 'appointment']
+        ).apply(label_action)
+        df_action.rename(
+            index=str,
+            columns={'key': 'action'},
+            inplace=True
+        )
+        self.naive_history = df_action.loc[df_action['action'] != "none", :]
+
+        return None
+
+    def remove_artefacts(self):
+        """Remove artefacts from naive history and save it as history"""
+
+        if self.first_posting is None:
+            self.build_first_posting()
+
+        naive_history = self.naive_history.copy()
+        naive_history['appointment date'] = \
+            naive_history['appointment'].apply(
+                lambda ts: ts.replace(hour=0, minute=0, second=0)
+            )
+
+        genuine_history = pd.merge(
+            left=naive_history,
+            right=self.first_posting,
+            left_on=['id', 'test type', 'grab', 'appointment date'],
+            right_on=['id', 'test type', 'first posting', 'appointment date'],
+            how='left',
+            indicator=True
+        )
+        genuine_history = genuine_history.loc[
+            genuine_history['first posting'].isna(), :
+        ]
+
+        self.history = genuine_history
+
+        return None
+
+    def build_history(self):
+        """Generate booking history.
+
+        Create history of appointments, i.e. all bookings and
+        cancellations of each appointment in dataset.
+
+        Parameters:
+        ----------
+
+        self
+
+        Returns:
+        -------
+
+        history:
+
+        dataframe with bookings and cancellations.
+        """
+
+        self.build_naive_history()
+
+        self.remove_artefacts()
+
+        return None
+
+    def plot(
+            self,
+            feature='schedule',
+            x_freq="W",
+            y_freq="H",
+            figsize=(16, 6),
+            savefigure=False
+    ):
+        """Plotting functionality.
+
+        Parameters:
+        ----------
+
+        feature:
+
+        string specifying name of attribute to plot, among 'schedule',
+        'timegrid', 'first_appearance', 'first_posting', 'history',
+        'naive history'
+
+        x_freq, y_freq:
+
+        frequencies for ticks on x- and y-axes
+
+        figsize:
+
+        size of figure
+
+        savefigure:
+
+        automatically saves plot as image file if True, location being
+        specified by IMG_DIR
+
+        Returns:
+        -------
+
+        ax, filepath where:
+
+        ax:
+
+        axis of figure plot
+
+        filepath:
+
+        full path of image file if saved, otherwise None
+
+        TODO: streamline parts with center id, test types, labeling etc.
+
+        """
+
+        # Create first bit in title - completed below
+        if len(self.center_info.index) == 0:
+            title = ""
+        elif len(self.center_info.index) > 1:
+            title = "for {0} centers".format(
+                len(self.center_info.index)
+            )
+        else:
+            center_test_types = self.center_info.iloc[0]['test types']
+            if len(center_test_types) == 0:
+                title = ""
+            elif len(center_test_types) > 1:
+                title = "for center {0} ({1} test types)".format(
+                    self.center_info.index[0],
+                    len(center_test_types)
+                )
+            else:
+                title = "for center {0} ({1})".format(
+                    self.center_info.index[0],
+                    center_test_types[0]
                 )
 
-    else:
-        ax = df[[x, y]].plot(x=x, y=y, **plot_style, figsize=figsize)
-    # ax = pd.DataFrame(data=[1, 3, 3, 6, 2]).plot(**plot_style)
-    ax.set_title(title, fontsize=18)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_xticks(x_date_range)
-    ax.set_xticklabels(x_tick_labels)
-    ax.set_yticks(y_date_range)
-    ax.set_yticklabels(y_tick_labels)
+        if feature == 'schedule':
+            x = 'appointment'
+            y = 'grab'
+            df = self.schedule[[x, y]]
+            plot_style = {
+                "marker": '.',
+                'markersize': 3,
+                'linestyle': ""
+            }
+            title = " ".join(["Schedule", title])
+            x_label = "Appointment"
+            y_label = "Data collection"
+            legend_text = []
+        elif feature == 'timegrid':
+            x = 'appointment'
+            y = 'grab'
+            df = self.timegrid[[x, y]]
+            plot_style = {
+                "marker": '.',
+                'markersize': 3,
+                'linestyle': ""
+            }
+            title = " ".join(["Timegrid", title])
+            x_label = "Appointment"
+            y_label = "Data collection"
+            legend_text = []
+        elif feature == 'first appearance':
+            x = 'appointment'
+            y = 'first appearance'
+            df = self.first_appearance[[x, y]]
+            plot_style = {
+                "marker": '.',
+                'markersize': 3,
+                'markeredgecolor': "k",
+                'markerfacecolor': "w",
+                'linestyle': ""
+            }
+            title = " ".join(["First appearance", title])
+            x_label = "Appointment"
+            y_label = "First appearance"
+            legend_text = []
+        elif feature == 'first posting':
+            x = 'appointment date'
+            y = 'first posting'
+            df = self.first_posting[[x, y]]
+            plot_style = {
+                "marker": '.',
+                'markersize': 3,
+                'markeredgecolor': "k",
+                'markerfacecolor': "w",
+                'linestyle': ""
+            }
+            title = " ".join(["First posting", title])
+            x_label = "Appointment date"
+            y_label = "First appearance"
+            legend_text = []
+        elif feature == 'history':
+            x = 'appointment'
+            y = 'grab'
+            df = self.history[[x, y, 'action']]
+            plot_style = {
+                "marker": '+',
+                'markersize': 10,
+                'linestyle': ""
+            }
+            title = " ".join(["History", title])
+            x_label = "Appointment"
+            y_label = "Action"
+            legend_text = []
+        elif feature == 'naive history':
+            x = 'appointment'
+            y = 'grab'
+            df = self.naive_history[[x, y, 'action']]
+            plot_style = {
+                'marker': "+",
+                'markersize': 10,
+                # "marker": '.',
+                # 'markersize': 10,
+                # 'markeredgecolor': 'k',
+                'linestyle': ""
+            }
+            title = " ".join(['"Naive" history', title])
+            x_label = "Appointment"
+            y_label = "Action"
+            legend_text = []
 
-    # Final plot layout
-    if feature == 'history':
-        ax.legend(legend_text)
-    else:
-        ax.get_legend().remove()
-    ax.grid()
+        # x- and y-axes ticks and tick labels
+        x_freq = x_freq  # "W"
+        x_date_range, x_tick_labels = get_ticks(df[x], x_freq)
+        y_freq = y_freq  # "H"
+        y_date_range, y_tick_labels = get_ticks(df[y], y_freq)
 
-    # Save figure if option chosen
-    if savefigure:
-        filename = "{0}-center-{1}-{2}-{3}.png".format(
-            datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
-            center_id,
-            "-".join(test_type.split()),
-            "-".join(feature.split())
-        )
-        filepath = os.path.join(IMG_DIR, filename)
-        plt.savefig(filepath)
-    else:
-        filepath = None
+        # Plot
+        fig, ax = plt.subplots(figsize=figsize)
+        if feature in ['naive history', 'history']:
 
-    return ax, filepath
+            for action in ['book', 'cancel']:
+                df_one_action = df.loc[
+                    df['action'] == action, [x, y]
+                ]
+                if not df_one_action.empty:
+                    legend_text.append(action)
+                    df_one_action.plot(
+                        x=x,
+                        y=y,
+                        **plot_style,
+                        figsize=figsize,
+                        ax=ax
+                    )
+        else:
+            df.plot(x=x, y=y, **plot_style, figsize=figsize, ax=ax)
+
+        # Labeling
+        ax.set_title(title, fontsize=18)
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        ax.set_xticks(x_date_range)
+        ax.set_xticklabels(x_tick_labels)
+        ax.set_yticks(y_date_range)
+        ax.set_yticklabels(y_tick_labels)
+        if not(legend_text is []):
+            ax.legend(legend_text)
+        else:
+            ax.get_legend().remove()
+
+        ax.grid()
+
+        if savefigure:
+            if len(self.center_info.index) == 0:
+                filename = "{0}-empty-figure-{1}.png".format(
+                    datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
+                    "-".join(feature.split())
+                )
+            elif len(self.center_info.index) > 1:
+                filename = "{0}-{1}-centers-{2}.png".format(
+                    datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
+                    len(self.center_info.index),
+                    "-".join(feature.split())
+                )
+            else:
+                center_test_types = self.center_info.iloc[0]['test types']
+
+                if not(len(center_test_types) == 1):
+                    filename = \
+                        "{0}-center-{1}-{2}-test-types-{3}.png".format(
+                            datetime.datetime.now().strftime(
+                                "%Y-%m-%d-%H-%M-%S"
+                            ),
+                            self.center_info.index[0],
+                            len(center_test_types[0]),
+                            "-".join(feature.split())
+                        )
+                else:
+                    filename = \
+                        "{0}-center-{1}-{2}-{3}.png".format(
+                            datetime.datetime.now().strftime(
+                                "%Y-%m-%d-%H-%M-%S"
+                            ),
+                            self.center_info.index[0],
+                            "-".join(center_test_types[0].split()),
+                            "-".join(feature.split())
+                        )
+
+            filepath = os.path.join(IMG_DIR, filename)
+            plt.savefig(filepath)
+        else:
+            filepath = None
+
+        return ax, filepath
+
+
+if __name__ == "__main__":
+    print(datetime.datetime.now().strftime("Time: %H:%M:%S"))
+    filename = 'sample_appointments.csv'  # appointments.csv
+    foldername = 'Projects/UHCW'
+    # filename = 'appointments.csv'
+    # foldername = 'Data/UHCW'
+    filepath = os.path.join(os.path.expanduser("~"), foldername, filename)
+
+    filesize = os.path.getsize(filepath)
+    if filesize > 1e6:
+        print("Size of data file: {}MB.".format(filesize//1000000))
+    elif filesize > 1e3:
+        print("Size of data file: {}KB.".format(filesize//1000))
+    else:
+        print("Size of data file: {}B.".format(filesize))
+    print("Loading data...")
+    raw_data = pd.read_csv(filepath, sep=';')
+    print("Number of records: {0}.".format(raw_data.shape[0]))
+    print("Column names:\n{}".format("\n".join(raw_data.columns)))
+
+    # uhcw = UHCW(raw_data)
+
+    print(datetime.datetime.now().strftime("Time: %H:%M:%S"))
