@@ -33,22 +33,38 @@ def prepare_UHCW_dataframe(raw_data):
     - grab: timestamp (UTC) of collection of data
     - appointment: timestamp (local, Coventry, UK) of appointment
     """
-    print("Make copy of data...")
+    print("{0}: : Make copy of data...".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
     df = raw_data.copy()
 
-    print("Type conversion: ")
-    print("Column appointment:")
-    print("Convert to datetime...")
+    print("{0}: Type conversion: ".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
+    print("{0}: Column appointment:".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
+    print("{0}: Convert to datetime...".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
     df['appointment'] = pd.to_datetime(df['appointment'])
-    print("Convert to London timezone...")
+    print("{0}: Convert to London timezone...".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
     df['appointment'] = df['appointment'].apply(
         lambda ts: ts.tz_localize(tz_london)
     )
 
-    print("Column grab:")
-    print("Convert to datetime...")
+    print("{0}: Column grab:".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
+    print("{0}: Convert to datetime...".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
     df['grab'] = pd.to_datetime(df['grab'])
-    print("Localize to UTC and convert to London timezone...")
+    print("{0}: Localize to UTC and convert to London timezone...".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
     df['grab'] = df['grab'].apply(
         lambda ts: ts.tz_localize(tz_utc).tz_convert(tz_london)
     )
@@ -566,7 +582,7 @@ class UHCW:
     appropriate) localization in between.
 
     """
-    def __init__(self, raw_data):
+    def __init__(self, schedule):
         """Instatiation of object of class UHCW.
 
         Parameters
@@ -588,7 +604,7 @@ class UHCW:
         at instantiation.
 
         """
-        self.schedule = prepare_UHCW_dataframe(raw_data)
+        self.schedule = schedule  # prepare_UHCW_dataframe(raw_data)
         self.center_info = build_center_test_info(self.schedule)
         self.schedule.drop('age group', axis=1, inplace=True)
         self.timegrid = None
