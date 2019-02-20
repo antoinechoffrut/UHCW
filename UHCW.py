@@ -4,7 +4,7 @@ import os
 import pytz
 import pandas as pd
 import datetime
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 # CONSTANTS
 tz_utc = pytz.timezone("UTC")  # timestamp is in UTC standard
@@ -33,19 +33,27 @@ def prepare_UHCW_dataframe(raw_data):
     - grab: timestamp (UTC) of collection of data
     - appointment: timestamp (local, Coventry, UK) of appointment
     """
+    print("Make copy of data...")
     df = raw_data.copy()
 
+    print("Type conversion: ")
+    print("Column appointment:")
+    print("Convert to datetime...")
     df['appointment'] = pd.to_datetime(df['appointment'])
-    df['grab'] = pd.to_datetime(df['grab'])
-
-    df = df[['id', 'test type', 'age group', 'grab', 'appointment']]
-
+    print("Convert to London timezone...")
     df['appointment'] = df['appointment'].apply(
         lambda ts: ts.tz_localize(tz_london)
     )
+
+    print("Column grab:")
+    print("Convert to datetime...")
+    df['grab'] = pd.to_datetime(df['grab'])
+    print("Localize to UTC and convert to London timezone...")
     df['grab'] = df['grab'].apply(
         lambda ts: ts.tz_localize(tz_utc).tz_convert(tz_london)
     )
+
+    df = df[['id', 'test type', 'age group', 'appointment', 'grab']]
 
     return df
 
@@ -78,7 +86,7 @@ def filter_center(df, center_id, test_type):
 
 def get_timegrid(schedule):
     """Generate grid of (grab, appointment) pairs appearing in
-    dataset.
+    dataset, excluding those with grab occurring after appointment.
 
     Parameters
     ----------
@@ -102,19 +110,81 @@ def get_timegrid(schedule):
         schedule.loc[
             :, ['id', 'test type', 'grab']
         ].drop_duplicates().reset_index(drop=True)
+
     appointments = \
         schedule.loc[
             :, ['id', 'test type', 'appointment']
         ].drop_duplicates().reset_index(drop=True)
 
-    timegrid = pd.merge(
+    cartesian = pd.merge(
         left=grabs,
         right=appointments,
         on=['id', 'test type'],
         how='outer'
     )
 
+    cartesian.query('grab <= appointment', inplace=True)
+
+    # Add column indicating whether appointment available or booked
+    timegrid = pd.merge(
+        left=cartesian,
+        right=schedule,
+        on=['id', 'test type', 'appointment', 'grab'],
+        how='left',
+        indicator=True
+    )
+    timegrid = timegrid[['id', 'test type', 'appointment', 'grab', '_merge']]
+    timegrid.sort_values(
+        ['id', 'test type', 'appointment', 'grab'],
+        inplace=True
+    )
+    timegrid.rename(index=str, columns={'_merge': 'status'}, inplace=True)
+    timegrid['status'] = timegrid['status'].apply(
+        lambda ind: "booked" if ind == "left_only" else "available"
+    )
+
     return timegrid
+
+
+def get_final_status(occupancy):
+    """Extract status of appointment at last grab."""
+
+    # Calculate last grab for each appointment
+    final_status = \
+        occupancy.groupby(
+            ['id', 'test type', 'appointment']
+        )['grab'].max().to_frame().reset_index()
+
+    # Restore action values (TODO: can this extra step be avoided?)
+    final_status = pd.merge(
+        left=final_status,
+        right=occupancy[['id', 'test type', 'appointment', 'grab', 'status']],
+        on=['id', 'test type', 'appointment', 'grab'],
+        how='left',
+        # indicator=True
+    )
+    return final_status
+
+
+def get_occupancy(final_status):
+    counts = final_status.groupby(
+        ['id', 'test type']
+    )['status'].value_counts().to_frame().rename(
+        index=str,
+        columns={'status': 'count'}
+    ).reset_index()
+
+    rates = \
+        pd.pivot_table(
+            counts,
+            values='count',
+            index=['id', 'test type'],
+            columns=['status']
+        ).fillna(0).astype(int)
+    rates['rate'] = \
+        (100*rates['booked']) // (rates['available'] + rates['booked'])
+
+    return rates
 
 
 def compare_against_timegrid(schedule, timegrid):
@@ -473,7 +543,10 @@ class UHCW:
     that it has been converted to proper types, and the age group
     column removed from raw_data
     - timegrid: lists of pairs (grab, appointment) present in the
-    dataset, labeled by (id, test type) pairs
+    dataset, labeled by (id, test type) pairs, and with grabs
+    occurring after appointments removed.
+    - occupancy: timegrid extended with 'status' column indicating
+    whether appointment is available or not
     - first_appearance: timestamps where appointments appear first in
     the data set
     - hitory: history of appointments, i.e. all bookings and
@@ -519,6 +592,8 @@ class UHCW:
         self.center_info = build_center_test_info(self.schedule)
         self.schedule.drop('age group', axis=1, inplace=True)
         self.timegrid = None
+        self.final_status = None
+        self.occupancy = None
         self.first_appearance = None
         self.first_posting = None
         self.naive_history = None
@@ -526,9 +601,36 @@ class UHCW:
 
     def build_timegrid(self):
         """Generate timegrid of schedule attribute and assign it to
-        timegrid attribute of object."""
+        timegrid attribute of object.
+
+        """
 
         self.timegrid = get_timegrid(self.schedule)
+
+        return None
+
+    # def build_occupancy(self):
+    #     """Generate dataframe of occupancy and assign it to attribute.
+    #     """
+    #     self.occupancy = get_occupancy(self.schedule)
+    #
+    #     return None
+
+    def build_final_status(self):
+        """Generate dataframe with final status (booked or available) of
+        appointments.
+        """
+        if self.occupancy is None:
+            self.build_occupancy()
+        self.final_status = get_final_status(self.occupancy)
+
+        return None
+
+    def build_occupancy(self):
+        if self.final_status is None:
+            self.build_final_status()
+
+        self.occupancy = get_occupancy(self.final_status)
 
         return None
 
@@ -643,7 +745,8 @@ class UHCW:
         dataframe with bookings and cancellations.
         """
 
-        self.build_naive_history()
+        if self.naive_history is None:
+            self.build_naive_history()
 
         self.remove_artefacts()
 
@@ -908,9 +1011,22 @@ if __name__ == "__main__":
         print("Size of data file: {}B.".format(filesize))
     print("Loading data...")
     raw_data = pd.read_csv(filepath, sep=';')
+    raw_data.rename(
+        index=str,
+        columns={
+            'center id': 'id',
+            'appointment timestamp': 'appointment',
+            'center age group': 'age group',
+            'grab timestamp': 'grab'
+        },
+        inplace=True
+    )
     print("Number of records: {0}.".format(raw_data.shape[0]))
     print("Column names:\n{}".format("\n".join(raw_data.columns)))
 
-    # uhcw = UHCW(raw_data)
+    uhcw = UHCW(raw_data)
+    uhcw.build_timegrid()
+    uhcw.build_final_status()
+    uhcw.build_occupancy()
 
     print(datetime.datetime.now().strftime("Time: %H:%M:%S"))
