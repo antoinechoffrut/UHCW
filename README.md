@@ -33,7 +33,7 @@ work with a relatively small subset of the full dataset.
 Details about the datasets, `attendance.csv` and `centers.csv`, are given below.  
 
 Following is a summary of preliminary findings obtained from the
-Jupyter notebook `UHCW_EDA.ipynb`.
+Jupyter notebook `UHCW_understanding.ipynb`.
 
 - There are:  
   - 18 test centers,  
@@ -99,7 +99,7 @@ of the dataset.
   midnight on 16 Jan 2019.  This suggests that appointments for a new
   day are made available online at the same time, at midnight on a
   fixed number of days ahead of the appointment day.  This hypothesis
-  is tested more thoroughly in `UHCW_EDA.ipynb` for all test centers
+  is tested more thoroughly in `UHCW_understanding.ipynb` for all test centers
   and all test types.  
 
 
@@ -150,7 +150,7 @@ contain the following information on each *appointment*:
 
 - The script `UHCW_scraping.py` downloads the data hourly (most of the
   time).  
-- The Jupyter notebook `UHCW_EDA.ipynb` helps to understand the UHCW
+- The Jupyter notebook `UHCW_understanding.ipynb` helps to understand the UHCW
   dataset.  
 - The Jupyter notebook `UHCW_reconstruction.ipynb` reconstructs the
   booking history of the appointments from the dataset.  
