@@ -12,7 +12,10 @@ tz_london = pytz.timezone("Europe/London")  # test centers are in Coventry, UK
 
 IMG_DIR = os.path.join(os.path.expanduser("~"), "Projects/UHCW/IMAGE_FILES")
 
-# BASIC DATAFRAME MANIPULATION
+# --------------------
+# Functions
+# --------------------
+# Generic dataframe operations
 
 
 def prepare_UHCW_dataframe(raw_data):
@@ -33,37 +36,38 @@ def prepare_UHCW_dataframe(raw_data):
     - grab: timestamp (UTC) of collection of data
     - appointment: timestamp (local, Coventry, UK) of appointment
     """
-    print("{0}: : Make copy of data...".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
+    FMT_TIME = "%Hh%Mm%Ss"
+    print("{0}: Make copy of data...".format(
+        datetime.datetime.now().strftime(FMT_TIME)
     ))
     df = raw_data.copy()
 
     print("{0}: Type conversion: ".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
+        datetime.datetime.now().strftime(FMT_TIME)
     ))
     print("{0}: Column appointment:".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
+        datetime.datetime.now().strftime(FMT_TIME)
     ))
     print("{0}: Convert to datetime...".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
+        datetime.datetime.now().strftime(FMT_TIME)
     ))
     df['appointment'] = pd.to_datetime(df['appointment'])
     print("{0}: Convert to London timezone...".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
+        datetime.datetime.now().strftime(FMT_TIME)
     ))
     df['appointment'] = df['appointment'].apply(
         lambda ts: ts.tz_localize(tz_london)
     )
 
     print("{0}: Column grab:".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
+        datetime.datetime.now().strftime(FMT_TIME)
     ))
     print("{0}: Convert to datetime...".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
+        datetime.datetime.now().strftime(FMT_TIME)
     ))
     df['grab'] = pd.to_datetime(df['grab'])
     print("{0}: Localize to UTC and convert to London timezone...".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
+        datetime.datetime.now().strftime(FMT_TIME)
     ))
     df['grab'] = df['grab'].apply(
         lambda ts: ts.tz_localize(tz_utc).tz_convert(tz_london)
@@ -96,11 +100,55 @@ def filter_center(df, center_id, test_type):
     """
     idxs = (df['id'] == center_id) & (df['test type'] == test_type)
     filtered = df.loc[idxs, :]
-
     return filtered
 
 
-def get_timegrid(schedule):
+def decouple_data(schedule):
+    """Create list of test centers with their test types.
+
+    Parameters:
+    ----------
+
+    schedule:
+
+    dataframe whose columns contain 'id', 'test type', and 'age group'
+
+    Returns:
+    -------
+
+    center_info:
+
+    dataframe indexed by center id, and two columns: 'age group'
+    indicating age group serviced at test center, and 'test types', a
+    list of test types administered at test center.
+
+    TODO: there has to be a more natural way to extract the center info
+
+    """
+
+    s = schedule.copy()
+
+    center_test_types =  \
+        s.groupby('id')['test type'].unique().rename(
+            "test types"
+        ).to_frame()
+    center_age_group = \
+        s.groupby('id')['age group'].unique().to_frame()
+
+    center_info = \
+        pd.merge(
+            center_test_types,
+            center_age_group,
+            on='id',
+            how='outer'
+        )
+
+    s.drop('age group', axis=1, inplace=True)
+
+    return s, center_info
+
+
+def get_timegrid(schedule, past_appointments=True):
     """Generate grid of (grab, appointment) pairs appearing in
     dataset, excluding those with grab occurring after appointment.
 
@@ -112,7 +160,11 @@ def get_timegrid(schedule):
     Dataframe with columns 'id', 'test type', 'grab', 'appointment',
     recording available appointments at grab times.
 
-    Returns
+    past_appointments:
+
+    boolean, indicates whether only past appointments should be kept
+
+    Returns - TODO: update this part
     -------
 
     timegrid:
@@ -122,6 +174,7 @@ def get_timegrid(schedule):
     appointment) where grab and appointment appearing in dataset.
 
     """
+    print("Cartesian product grabs by appointments...")
     grabs = \
         schedule.loc[
             :, ['id', 'test type', 'grab']
@@ -132,75 +185,388 @@ def get_timegrid(schedule):
             :, ['id', 'test type', 'appointment']
         ].drop_duplicates().reset_index(drop=True)
 
-    cartesian = pd.merge(
+    t = pd.merge(
         left=grabs,
         right=appointments,
         on=['id', 'test type'],
         how='outer'
     )
 
-    cartesian.query('grab <= appointment', inplace=True)
+    print("Ignore grabs past appointments...")
+    t.query('grab <= appointment', inplace=True)
+
+    if past_appointments:
+        print("Restrict to past appointments...")
+        last_grab = schedule['grab'].max()
+        t.query('appointment <= @last_grab', inplace=True)
+
+    print("Sort by id, test type, appointment, grab...")
+    t.sort_values(
+        ['id', 'test type', 'appointment', 'grab'],
+        inplace=True
+    )
+
+    t = t[['id', 'test type', 'appointment', 'grab']]
 
     # Add column indicating whether appointment available or booked
-    timegrid = pd.merge(
-        left=cartesian,
+    print("Add status...")
+    t = pd.merge(
+        left=t,
         right=schedule,
         on=['id', 'test type', 'appointment', 'grab'],
         how='left',
         indicator=True
     )
-    timegrid = timegrid[['id', 'test type', 'appointment', 'grab', '_merge']]
-    timegrid.sort_values(
-        ['id', 'test type', 'appointment', 'grab'],
-        inplace=True
-    )
-    timegrid.rename(index=str, columns={'_merge': 'status'}, inplace=True)
-    timegrid['status'] = timegrid['status'].apply(
+
+    t.rename(index=str, columns={'_merge': 'status'}, inplace=True)
+    t['status'] = t['status'].apply(
         lambda ind: "booked" if ind == "left_only" else "available"
     )
 
-    return timegrid
-
-
-def get_final_status(occupancy):
-    """Extract status of appointment at last grab."""
-
-    # Calculate last grab for each appointment
-    final_status = \
-        occupancy.groupby(
-            ['id', 'test type', 'appointment']
-        )['grab'].max().to_frame().reset_index()
-
-    # Restore action values (TODO: can this extra step be avoided?)
-    final_status = pd.merge(
-        left=final_status,
-        right=occupancy[['id', 'test type', 'appointment', 'grab', 'status']],
-        on=['id', 'test type', 'appointment', 'grab'],
-        how='left',
-        # indicator=True
+    # Add columns with various groups of grabs
+    print("Add extra grab columns:")
+    print("{0}: grab hour...".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
+    t['grab hour'] = \
+        t['grab'].apply(lambda ts: ts.replace(minute=0, second=0))
+    print("{0}: grab 3 hours...".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
+    t['grab 3 hours'] = \
+        t['grab'].apply(
+            lambda ts: ts.replace(
+                hour=3*(ts.hour // 3),
+                minute=0,
+                second=0)
+        )
+    print("{0}: grab day...".format(
+        datetime.datetime.now().strftime("%H:%M:%S")
+    ))
+    t['grab day'] = t['grab'].apply(
+        lambda ts: ts.replace(hour=0, minute=0, second=0)
     )
-    return final_status
 
+    # Add status in last hour
+    status_in_hour = \
+        t.groupby(
+            ['id', 'test type', 'appointment', 'grab hour']
+        )['status'].apply(
+            lambda group: "booked" in list(group)
+        ).reset_index()
 
-def get_occupancy(final_status):
-    counts = final_status.groupby(
-        ['id', 'test type']
-    )['status'].value_counts().to_frame().rename(
+    status_in_hour['status'] = \
+        status_in_hour['status'].apply(
+            lambda status: "booked" if status else "available"
+        )
+    status_in_hour.rename(
         index=str,
-        columns={'status': 'count'}
+        columns={'status': 'status in last hour'},
+        inplace=True
+    )
+
+    t = pd.merge(
+        left=t,
+        right=status_in_hour,
+        on=['id', 'test type', 'appointment', 'grab hour'],
+        how='left'
+    )
+
+    # Add status in last 3 hours
+    status_in_3_hours = \
+        t.groupby(
+            ['id', 'test type', 'appointment', 'grab 3 hours']
+        )['status'].apply(
+            lambda group: "booked" in list(group)
+        ).reset_index()
+    status_in_3_hours['status'] = \
+        status_in_3_hours['status'].apply(
+            lambda status: "booked" if status else "available"
+        )
+    status_in_3_hours.rename(
+        index=str,
+        columns={'status': 'status in last 3 hours'},
+        inplace=True
+    )
+
+    t = pd.merge(
+        left=t,
+        right=status_in_3_hours,
+        on=['id', 'test type', 'appointment', 'grab 3 hours'],
+        how='left'
+    )
+
+    # Add status in last day
+    status_in_day = \
+        t.groupby(
+            ['id', 'test type', 'appointment', 'grab day']
+        )['status'].apply(
+            lambda group: "booked" in list(group)
+        ).reset_index()
+
+    status_in_day['status'] = \
+        status_in_day['status'].apply(
+            lambda status: "booked" if status else "available"
+        )
+    status_in_day.rename(
+        index=str,
+        columns={'status': 'status in last day'},
+        inplace=True
+    )
+
+    t = pd.merge(
+        left=t,
+        right=status_in_day,
+        on=['id', 'test type', 'appointment', 'grab day'],
+        how='left'
+    )
+
+    # Add final status
+
+    status_final = \
+        t.groupby(
+            ['id', 'test type', 'appointment']
+        )['status'].apply(lambda group: list(group)[-1]).reset_index()
+
+    status_final.rename(
+        index=str, columns={'status': 'final status'},
+        inplace=True
+    )
+
+    # calculate last grabs
+    t_last_grab = t[
+        ['id', 'test type', 'appointment', 'grab']
+    ].groupby(
+        ['id', 'test type', 'appointment']
+    )['grab'].max().reset_index().rename(
+        index=str,
+        columns={'grab': 'last grab'}
+    )
+
+    # include last grabs
+    status_final = pd.merge(
+        left=status_final,
+        right=t_last_grab,
+        on=['id', 'test type', 'appointment'],
+        how='left'
+    )
+
+    t = pd.merge(
+        left=t,
+        right=status_final,
+        on=['id', 'test type', 'appointment'],
+        how='left'
+    )
+
+    t.rename(
+        index=str,
+        columns={'status': 'status at grab'},
+        inplace=True
+    )
+    t = t[[
+        'id',
+        'test type',
+        'appointment',
+        'grab',
+        'status at grab',
+        'grab hour',
+        'status in last hour',
+        'grab 3 hours',
+        'status in last 3 hours',
+        'grab day',
+        'status in last day',
+        'last grab',
+        'final status'
+    ]]
+
+    return t
+
+
+# def get_final_status(timegrid):
+#     """Extract status of appointment at last grab."""
+#
+#     # Calculate last grab for each appointment
+#     final_status = \
+#         timegrid.groupby(
+#             ['id', 'test type', 'appointment']
+#         )['grab'].max().to_frame().reset_index()
+#
+#     # Restore action values (TODO: can this extra step be avoided?)
+#     final_status = pd.merge(
+#         left=final_status,
+#         right=timegrid[['id', 'test type', 'appointment', 'grab', 'status']],
+#         on=['id', 'test type', 'appointment', 'grab'],
+#         how='left',
+#         # indicator=True
+#     )
+#     return final_status
+
+
+# def OLD_get_occupancy(final_status):
+#     counts = final_status.groupby(
+#         ['id', 'test type']
+#     )['status'].value_counts().to_frame().rename(
+#         index=str,
+#         columns={'status': 'count'}
+#     ).reset_index()
+#
+#     rates = \
+#         pd.pivot_table(
+#             counts,
+#             values='count',
+#             index=['id', 'test type'],
+#             columns=['status']
+#         ).fillna(0).astype(int)
+#     rates['rate'] = \
+#         (100*rates['booked']) // (rates['available'] + rates['booked'])
+#
+#     return rates
+
+def get_occupancy(timegrid):
+
+    occupancy = timegrid.copy()
+
+    # Overall occupancy
+
+    print("Calculate overall occupancy rate:")
+    print("Calculate counts...")
+    counts = occupancy.groupby(
+        ['id', 'test type']
+    )['final status'].value_counts().to_frame().rename(
+        index=str,
+        columns={'final status': 'count'}
     ).reset_index()
 
+    print("Pivot table...")
     rates = \
         pd.pivot_table(
             counts,
             values='count',
             index=['id', 'test type'],
-            columns=['status']
+            columns=['final status']
         ).fillna(0).astype(int)
-    rates['rate'] = \
-        (100*rates['booked']) // (rates['available'] + rates['booked'])
 
-    return rates
+    # In case all "booked" or all "available", add column of 0s
+    for status in ['booked', 'available']:
+        if not(status in rates.columns):
+            rates[status] = 0
+    print("Calculate rates...")
+    rates['rate'] = \
+        (100*rates['booked']) \
+        // (rates['available'] + rates['booked'])
+    rates.reset_index(inplace=True)
+    rates['id'] = rates['id'].astype(int)
+
+    print("Merge rates with occupancy...")
+    occupancy = pd.merge(
+        left=occupancy,
+        right=rates[['id', 'test type', 'rate']],
+        on=['id', 'test type'],
+        how='left'
+    )
+    occupancy.rename(
+        index=str,
+        columns={'rate': 'overall occupancy rate'},
+        inplace=True
+    )
+
+    # daily occupancy rates
+
+    print("Calculate daily occupancy rates:")
+    print("Calculate appointment day...")
+    occupancy['appointment day'] = occupancy['appointment'].apply(
+        lambda ts: ts.replace(hour=0, minute=0, second=0)
+    )
+    print("Calculate daily counts...")
+    counts_daily = occupancy.groupby(
+        ['id', 'test type', 'appointment day']
+    )['final status'].value_counts().to_frame().rename(
+        index=str,
+        columns={'final status': 'count'}
+    ).reset_index()
+
+    print("Pivot table of daily counts...")
+    rates_daily = \
+        pd.pivot_table(
+            counts_daily,
+            values='count',
+            index=['id', 'test type', 'appointment day'],
+            columns=['final status']
+        ).fillna(0).astype(int)
+
+    print("Calculate rates...")
+    rates_daily['rate'] = \
+        (100*rates_daily['booked']) \
+        // (rates_daily['available'] + rates_daily['booked'])
+    rates_daily.reset_index(inplace=True)
+    rates_daily['id'] = rates_daily['id'].astype(int)
+    rates_daily['appointment day'] = \
+        rates_daily['appointment day'].apply(
+            lambda ts: pd.to_datetime(ts).tz_localize(tz_london)
+        )
+
+    print("Merge with occupancy...")
+    occupancy = pd.merge(
+        left=occupancy,
+        right=rates_daily[['id', 'test type', 'appointment day', 'rate']],
+        on=['id', 'test type', 'appointment day'],
+        how='left'
+    )
+    occupancy.rename(
+        index=str,
+        columns={'rate': 'daily occupancy rate'},
+        inplace=True
+    )
+
+    # hourly occupancy rates
+
+    print("Calculate hourly occupancy rates:")
+    print("Add appointment hour...")
+    occupancy['appointment hour'] = occupancy['appointment'].apply(
+        lambda ts: ts.replace(minute=0, second=0)
+    )
+    print("Calculate hourly counts...")
+    counts_hourly = occupancy.groupby(
+        ['id', 'test type', 'appointment hour']
+    )['final status'].value_counts().to_frame().rename(
+        index=str,
+        columns={'final status': 'count'}
+    ).reset_index()
+
+    print("Pivot table of hourly counts...")
+    rates_hourly = \
+        pd.pivot_table(
+            counts_hourly,
+            values='count',
+            index=['id', 'test type', 'appointment hour'],
+            columns=['final status']
+        ).fillna(0).astype(int)
+
+    print("Calculate hourly rates...")
+    rates_hourly['rate'] = \
+        (100*rates_hourly['booked']) \
+        // (rates_hourly['available'] + rates_hourly['booked'])
+    rates_hourly.reset_index(inplace=True)
+    rates_hourly['id'] = rates_hourly['id'].astype(int)
+    rates_hourly['appointment hour'] = \
+        rates_hourly['appointment hour'].apply(
+            lambda ts: pd.to_datetime(ts).tz_localize(tz_london)
+        )
+
+    print("Merge with occupancy...")
+    occupancy = pd.merge(
+        left=occupancy,
+        right=rates_hourly[['id', 'test type', 'appointment hour', 'rate']],
+        on=['id', 'test type', 'appointment hour'],
+        how='left'
+    )
+    occupancy.rename(
+        index=str,
+        columns={'rate': 'hourly occupancy rate'},
+        inplace=True
+    )
+
+    return occupancy
 
 
 def compare_against_timegrid(schedule, timegrid):
@@ -508,46 +874,6 @@ def get_date_range(s, freq="D"):
     return date_range
 
 
-def build_center_test_info(df):
-    """Create list of test centers with their test types.
-
-    Parameters:
-    ----------
-
-    df:
-
-    dataframe whose columns contain 'id', 'test type', and 'age group'
-
-    Returns:
-    -------
-
-    center_info:
-
-    dataframe indexed by center id, and two columns: 'age group'
-    indicating age group serviced at test center, and 'test types', a
-    list of test types administered at test center.
-
-    TODO: there has to be a more natural way to implement this function.
-
-    """
-    center_test_types =  \
-        df.groupby('id')['test type'].unique().rename(
-            "test types"
-        ).to_frame()
-    center_age_group = \
-        df.groupby('id')['age group'].unique().to_frame()
-
-    center_info = \
-        pd.merge(
-            center_test_types,
-            center_age_group,
-            on='id',
-            how='outer'
-        )
-
-    return center_info
-
-
 class UHCW:
     """Main data structure in UHCW project.
 
@@ -604,9 +930,7 @@ class UHCW:
         at instantiation.
 
         """
-        self.schedule = schedule  # prepare_UHCW_dataframe(raw_data)
-        self.center_info = build_center_test_info(self.schedule)
-        self.schedule.drop('age group', axis=1, inplace=True)
+        self.schedule, self.center_info = decouple_data(schedule)
         self.timegrid = None
         self.final_status = None
         self.occupancy = None
@@ -632,21 +956,22 @@ class UHCW:
     #
     #     return None
 
-    def build_final_status(self):
-        """Generate dataframe with final status (booked or available) of
-        appointments.
-        """
-        if self.occupancy is None:
-            self.build_occupancy()
-        self.final_status = get_final_status(self.occupancy)
-
-        return None
+    # def build_final_status(self):
+    #     """Generate dataframe with final status (booked or available) of
+    #     appointments.
+    #     """
+    #     if self.timegrid is None:
+    #         self.build_timegrid()
+    #     self.final_status = get_final_status(self.timegrid)
+    #
+    #     return None
 
     def build_occupancy(self):
-        if self.final_status is None:
-            self.build_final_status()
 
-        self.occupancy = get_occupancy(self.final_status)
+        if self.timegrid is None:
+            self.build_timegrid()
+
+        self.occupancy = get_occupancy(self.timegrid)
 
         return None
 
@@ -1012,10 +1337,12 @@ class UHCW:
 
 if __name__ == "__main__":
     print(datetime.datetime.now().strftime("Time: %H:%M:%S"))
+
+    filename = 'appointments.csv'
+    foldername = 'Data/UHCW'
     filename = 'sample_appointments.csv'  # appointments.csv
     foldername = 'Projects/UHCW'
-    # filename = 'appointments.csv'
-    # foldername = 'Data/UHCW'
+
     filepath = os.path.join(os.path.expanduser("~"), foldername, filename)
 
     filesize = os.path.getsize(filepath)
@@ -1037,12 +1364,44 @@ if __name__ == "__main__":
         },
         inplace=True
     )
-    print("Number of records: {0}.".format(raw_data.shape[0]))
-    print("Column names:\n{}".format("\n".join(raw_data.columns)))
 
-    uhcw = UHCW(raw_data)
-    uhcw.build_timegrid()
-    uhcw.build_final_status()
-    uhcw.build_occupancy()
+    # Restrict to smaller collection period
+    smaller_dataset = raw_data[
+        raw_data['grab'] < '2019-01-19'
+    ]
+    schedule = prepare_UHCW_dataframe(smaller_dataset)
+    # schedule = prepare_UHCW_dataframe(
+    #     raw_data[
+    #         (raw_data['grab'] < '2019-01-19') & (raw_data['id'].apply(
+    #             lambda cid: cid in [10136, 10188, 10243])
+    #         )
+    #     ]
+    # )
+
+    # Restrict to past appointments only
+    last_grab = schedule['grab'].max()
+
+    s = schedule.query('appointment <= @last_grab').copy()
+
+    # Calculate number of appointments
+    s.groupby(['id', 'test type'])['appointment'].nunique().to_frame()
+
+    # Selected center (and test type)
+    cid = 10250  # 10254  # 10263
+    test_type = "INR Test"  # "Blood Test"
+
+    # timegrid
+    t = get_timegrid(s)
+
+    occ = get_occupancy(t)
+
+    # For debuggin purposes
+    s0 = s[(s['id'] == cid) & (s['test type'] == test_type)].copy()
+    t0 = t[(t['id'] == cid) & (t['test type'] == test_type)].copy()
+
+    # uhcw = UHCW(raw_data)
+    # uhcw.build_timegrid()
+    # uhcw.build_final_status()
+    # uhcw.build_occupancy()
 
     print(datetime.datetime.now().strftime("Time: %H:%M:%S"))
