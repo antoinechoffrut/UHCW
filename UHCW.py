@@ -174,12 +174,15 @@ def get_timegrid(schedule, past_appointments=True):
     appointment) where grab and appointment appearing in dataset.
 
     """
+
     print("Cartesian product grabs by appointments...")
     grabs = \
         schedule.loc[
             :, ['id', 'test type', 'grab']
         ].drop_duplicates().reset_index(drop=True)
 
+    print(grabs['grab'].min())
+    print(grabs['grab'].max())
     appointments = \
         schedule.loc[
             :, ['id', 'test type', 'appointment']
@@ -198,6 +201,7 @@ def get_timegrid(schedule, past_appointments=True):
     if past_appointments:
         print("Restrict to past appointments...")
         last_grab = schedule['grab'].max()
+        print(last_grab)
         t.query('appointment <= @last_grab', inplace=True)
 
     print("Sort by id, test type, appointment, grab...")
@@ -206,7 +210,6 @@ def get_timegrid(schedule, past_appointments=True):
         inplace=True
     )
 
-    t = t[['id', 'test type', 'appointment', 'grab']]
 
     # Add column indicating whether appointment available or booked
     print("Add status...")
@@ -382,49 +385,12 @@ def get_timegrid(schedule, past_appointments=True):
     return t
 
 
-# def get_final_status(timegrid):
-#     """Extract status of appointment at last grab."""
-#
-#     # Calculate last grab for each appointment
-#     final_status = \
-#         timegrid.groupby(
-#             ['id', 'test type', 'appointment']
-#         )['grab'].max().to_frame().reset_index()
-#
-#     # Restore action values (TODO: can this extra step be avoided?)
-#     final_status = pd.merge(
-#         left=final_status,
-#         right=timegrid[['id', 'test type', 'appointment', 'grab', 'status']],
-#         on=['id', 'test type', 'appointment', 'grab'],
-#         how='left',
-#         # indicator=True
-#     )
-#     return final_status
-
-
-# def OLD_get_occupancy(final_status):
-#     counts = final_status.groupby(
-#         ['id', 'test type']
-#     )['status'].value_counts().to_frame().rename(
-#         index=str,
-#         columns={'status': 'count'}
-#     ).reset_index()
-#
-#     rates = \
-#         pd.pivot_table(
-#             counts,
-#             values='count',
-#             index=['id', 'test type'],
-#             columns=['status']
-#         ).fillna(0).astype(int)
-#     rates['rate'] = \
-#         (100*rates['booked']) // (rates['available'] + rates['booked'])
-#
-#     return rates
-
 def get_occupancy(timegrid):
 
-    occupancy = timegrid.copy()
+    occupancy = timegrid.loc[
+        timegrid.index,
+        ['id', 'test type', 'appointment', 'final status']
+    ]
 
     # Overall occupancy
 
@@ -597,9 +563,9 @@ def compare_against_timegrid(schedule, timegrid):
         on=['id', 'test type', 'appointment', 'grab'],
         how='outer'
     )
-    schedule_against_timegrid.fillna(0, inplace=True)
-    schedule_against_timegrid['key'] = \
-        schedule_against_timegrid['key'].astype(int)
+    # schedule_against_timegrid.fillna(0, inplace=True)
+    # schedule_against_timegrid['key'] = \
+    #     schedule_against_timegrid['key'].astype(int)
 
     return schedule_against_timegrid
 
@@ -1023,16 +989,36 @@ class UHCW:
         if self.timegrid is None:
             self.build_timegrid()
 
-        df_compare = compare_against_timegrid(
-            self.schedule, self.timegrid
+        # df_compare = compare_against_timegrid(
+        #     self.schedule, self.timegrid
+        # )
+
+        df_compare = \
+            self.timegrid[
+                ['id', 'test type', 'appointment', 'grab', 'status at grab']
+            ].copy()
+
+        df_compare['status at grab'] = \
+            df_compare['status at grab'].apply(
+                lambda status: 1 if status == 'available' else 0
+            )
+
+        df_compare.rename(
+            index=str,
+            columns={'status at grab': 'action'}
         )
+        self.naive_history = df_compare
+
+        return
+
+    def joe(self):
         # Detect bookings and cancellations
         df_action = df_compare.groupby(
             ['id', 'test type', 'appointment']
         ).apply(label_action)
         df_action.rename(
             index=str,
-            columns={'key': 'action'},
+            columns={'status at grab': 'action'},  # key
             inplace=True
         )
         self.naive_history = df_action.loc[df_action['action'] != "none", :]
@@ -1335,73 +1321,72 @@ class UHCW:
         return ax, filepath
 
 
+
+
+
+foldername = 'Projects/UHCW'
+filename = 'appointments-tiny.csv'
+
+filepath = os.path.join(os.path.expanduser("~"), foldername, filename)
+
+raw_data = pd.read_csv(filepath, sep=';')
+raw_data.rename(
+    index=str,
+    columns={
+        'center id': 'id',
+        'appointment timestamp': 'appointment',
+        'center age group': 'age group',
+        'grab timestamp': 'grab'
+    },
+    inplace=True
+)
+
+schedule = prepare_UHCW_dataframe(raw_data)
+
+# Calculate number of appointments
+schedule.groupby(
+    ['id', 'test type']
+)['appointment'].nunique().to_frame()
+
+# Test first "by hand"
+# s = schedule.copy()
+# t = get_timegrid(s)
+
+uhcw = UHCW(schedule)
+s = uhcw.schedule
+uhcw.build_timegrid()
+t = uhcw.timegrid
+
+
+
+
 if __name__ == "__main__":
-    print(datetime.datetime.now().strftime("Time: %H:%M:%S"))
+    print("")
 
-    filename = 'appointments.csv'
-    foldername = 'Data/UHCW'
-    filename = 'sample_appointments.csv'  # appointments.csv
-    foldername = 'Projects/UHCW'
+    # --------------------
+    # Load 24-hour dataset
+    #
+    # foldername = 'Projects/UHCW'
+    # filename = 'sample_appointments.csv'
 
-    filepath = os.path.join(os.path.expanduser("~"), foldername, filename)
+    # --------------------
+    # Load 3-week dataset
+    #
+    # foldername = 'Data/UHCW'
+    # filename = 'appointments.csv'
 
-    filesize = os.path.getsize(filepath)
-    if filesize > 1e6:
-        print("Size of data file: {}MB.".format(filesize//1000000))
-    elif filesize > 1e3:
-        print("Size of data file: {}KB.".format(filesize//1000))
-    else:
-        print("Size of data file: {}B.".format(filesize))
-    print("Loading data...")
-    raw_data = pd.read_csv(filepath, sep=';')
-    raw_data.rename(
-        index=str,
-        columns={
-            'center id': 'id',
-            'appointment timestamp': 'appointment',
-            'center age group': 'age group',
-            'grab timestamp': 'grab'
-        },
-        inplace=True
-    )
+    # --------------------
+    # Load tiny dataset
 
-    # Restrict to smaller collection period
-    smaller_dataset = raw_data[
-        raw_data['grab'] < '2019-01-19'
-    ]
-    schedule = prepare_UHCW_dataframe(smaller_dataset)
-    # schedule = prepare_UHCW_dataframe(
-    #     raw_data[
-    #         (raw_data['grab'] < '2019-01-19') & (raw_data['id'].apply(
-    #             lambda cid: cid in [10136, 10188, 10243])
-    #         )
-    #     ]
-    # )
 
-    # Restrict to past appointments only
-    last_grab = schedule['grab'].max()
+    # --------------------
 
-    s = schedule.query('appointment <= @last_grab').copy()
 
-    # Calculate number of appointments
-    s.groupby(['id', 'test type'])['appointment'].nunique().to_frame()
+    # occ = get_occupancy(t)
 
-    # Selected center (and test type)
-    cid = 10250  # 10254  # 10263
-    test_type = "INR Test"  # "Blood Test"
 
-    # timegrid
-    t = get_timegrid(s)
-
-    occ = get_occupancy(t)
-
-    # For debuggin purposes
-    s0 = s[(s['id'] == cid) & (s['test type'] == test_type)].copy()
-    t0 = t[(t['id'] == cid) & (t['test type'] == test_type)].copy()
-
-    # uhcw = UHCW(raw_data)
+    # uhcw = UHCW(schedule)
     # uhcw.build_timegrid()
-    # uhcw.build_final_status()
+
     # uhcw.build_occupancy()
 
-    print(datetime.datetime.now().strftime("Time: %H:%M:%S"))
