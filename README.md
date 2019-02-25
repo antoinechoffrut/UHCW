@@ -155,6 +155,8 @@ one of which administers multiple types of tests.
 
 - The script `UHCW_scraping.py` downloads the data hourly (most of the
   time).  
+- The script `UHCW-create-master.py` aggregates the files generated
+  with `UHCW_scraping.py` into a single file, `appointments.csv`.  
 - The Jupyter notebook `UHCW_understanding.ipynb` helps to understand the UHCW
   dataset.  
 - The Jupyter notebook `UHCW-booking-history.ipynb` provides a
