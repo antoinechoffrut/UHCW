@@ -803,8 +803,8 @@ def get_date_range(s, freq="D"):
     ticks on plots
 
     """
-    ts_min = s.min()
-    ts_max = s.max()
+    ts_min = s.min() - pd.Timedelta("3H")
+    ts_max = s.max() + pd.Timedelta("3H")
     if freq == "W":
         date_range = pd.date_range(
             pd.Timestamp(ts_min.year, ts_min.month, ts_min.day),
@@ -816,11 +816,6 @@ def get_date_range(s, freq="D"):
             pd.DatetimeIndex([ts_max.date()])
         )
     elif freq == "D":
-        # date_range = pd.date_range(
-        #     pd.Timestamp(ts_min.year, ts_min.month, ts_min.day),
-        #     pd.Timestamp(ts_max.year, ts_max.month, ts_max.day),
-        #     freq="D"
-        # )
         date_range = pd.date_range(
             pd.Timestamp(ts_min.year, ts_min.month, ts_min.day),
             pd.Timestamp(ts_max.year, ts_max.month, ts_max.day),
