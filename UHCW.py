@@ -27,14 +27,21 @@ def prepare_UHCW_dataframe(raw_data):
     raw_data:
 
     dataframe containing data from UHCW online appointment booking
-    system.  Presumed to have columns 'id', 'test type', 'age group',
-    'grab', 'appointment'.  Each row represents an available
-    appointment at a given time (grab):
+    system.  Each row represents an available appointment at a given
+    time (grab).
+
+    Assumptions:
+
+    all values are of type "object" (string)
+
+    raw_data has columns:
+
     - id: id number of test center offering appointment
-    - test type: type of blood test administered
+    - test: type of blood test administered
     - age group: age group servied (adult or child)
     - grab: timestamp (UTC) of collection of data
     - appointment: timestamp (local, Coventry, UK) of appointment
+
     """
     FMT_TIME = "%Hh%Mm%Ss"
     print("{0}: Make copy of data...".format(
@@ -73,45 +80,20 @@ def prepare_UHCW_dataframe(raw_data):
         lambda ts: ts.tz_localize(tz_utc).tz_convert(tz_london)
     )
 
-    df = df[['id', 'test type', 'age group', 'appointment', 'grab']]
+    df = df[['id', 'test', 'age group', 'appointment', 'grab']]
 
     return df
 
 
-def filter_center(df, center_id, test_type):
-    """Filter dataset for selected center and test type.
-
-    Parameters
-    ----------
-    df:
-
-    dataframe, assumed to have 'id' and 'test type' as column names
-    center_id (int) id of desired test center, test_type (str) name of
-    test type
-
-    Returns
-    -------
-
-    filtered:
-
-    dataframe with records from df corresponding to desired test
-    center and test type
-
-    """
-    idxs = (df['id'] == center_id) & (df['test type'] == test_type)
-    filtered = df.loc[idxs, :]
-    return filtered
-
-
 def decouple_data(schedule):
-    """Create list of test centers with their test types.
+    """Create list of test centers with their tests.
 
     Parameters:
     ----------
 
     schedule:
 
-    dataframe whose columns contain 'id', 'test type', and 'age group'
+    dataframe whose columns contain 'id', 'test', and 'age group'
 
     Returns:
     -------
@@ -119,8 +101,8 @@ def decouple_data(schedule):
     center_info:
 
     dataframe indexed by center id, and two columns: 'age group'
-    indicating age group serviced at test center, and 'test types', a
-    list of test types administered at test center.
+    indicating age group serviced at test center, and 'tests', a
+    list of tests administered at test center.
 
     TODO: there has to be a more natural way to extract the center info
 
@@ -129,8 +111,8 @@ def decouple_data(schedule):
     s = schedule.copy()
 
     center_test_types =  \
-        s.groupby('id')['test type'].unique().rename(
-            "test types"
+        s.groupby('id')['test'].unique().rename(
+            "tests"
         ).to_frame()
     center_age_group = \
         s.groupby('id')['age group'].unique().to_frame()
@@ -157,7 +139,7 @@ def get_timegrid(schedule, past_appointments=True):
 
     schedule:
 
-    Dataframe with columns 'id', 'test type', 'grab', 'appointment',
+    Dataframe with columns 'id', 'test', 'grab', 'appointment',
     recording available appointments at grab times.
 
     past_appointments:
@@ -169,54 +151,70 @@ def get_timegrid(schedule, past_appointments=True):
 
     timegrid:
 
-    Dataframe with columns 'id', 'test type', 'grab', 'appointment',
-    which, for each (id, test type) pair, contains all pairs (grab,
+    Dataframe with columns 'id', 'test', 'grab', 'appointment', 'status'
+    which, for each (id, test) pair, contains all pairs (grab,
     appointment) where grab and appointment appearing in dataset.
 
     """
 
+    print(datetime.datetime.now().strftime("%H:%M:%S"))
+    if not (isinstance(schedule, pd.DataFrame)):
+        print('WARNING: input variable "schedule is not a dataframe."')
+        return None
+    elif schedule.empty:
+        print('WARNING: input variable "schedule" is an empty dataframe.')
+        return None
+    elif not set({'id', 'test', 'appointment', 'grab'}).issubset(
+            schedule.columns
+    ):
+        print('WARNING: input variable "schedule" is missing columns.')
+        print('(Must contain: "id", "test", "appointment", "grab".')
+        return None
+    else:
+        None
+
     print("Cartesian product grabs by appointments...")
     grabs = \
         schedule.loc[
-            :, ['id', 'test type', 'grab']
+            :, ['id', 'test', 'grab']
         ].drop_duplicates().reset_index(drop=True)
 
-    print(grabs['grab'].min())
-    print(grabs['grab'].max())
     appointments = \
         schedule.loc[
-            :, ['id', 'test type', 'appointment']
+            :, ['id', 'test', 'appointment']
         ].drop_duplicates().reset_index(drop=True)
 
     t = pd.merge(
         left=grabs,
         right=appointments,
-        on=['id', 'test type'],
+        on=['id', 'test'],
         how='outer'
     )
 
     print("Ignore grabs past appointments...")
     t.query('grab <= appointment', inplace=True)
+    t.sort_values(['appointment', 'grab'], inplace=True)
 
     if past_appointments:
-        print("Restrict to past appointments...")
         last_grab = schedule['grab'].max()
-        print(last_grab)
+        print(
+            "Restrict to past appointments (on or before {0})...".format(
+                last_grab
+            )
+        )
         t.query('appointment <= @last_grab', inplace=True)
 
-    print("Sort by id, test type, appointment, grab...")
     t.sort_values(
-        ['id', 'test type', 'appointment', 'grab'],
+        ['id', 'test', 'appointment', 'grab'],
         inplace=True
     )
-
 
     # Add column indicating whether appointment available or booked
     print("Add status...")
     t = pd.merge(
         left=t,
         right=schedule,
-        on=['id', 'test type', 'appointment', 'grab'],
+        on=['id', 'test', 'appointment', 'grab'],
         how='left',
         indicator=True
     )
@@ -226,109 +224,141 @@ def get_timegrid(schedule, past_appointments=True):
         lambda ind: "booked" if ind == "left_only" else "available"
     )
 
-    # Add columns with various groups of grabs
-    print("Add extra grab columns:")
-    print("{0}: grab hour...".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
-    ))
-    t['grab hour'] = \
-        t['grab'].apply(lambda ts: ts.replace(minute=0, second=0))
-    print("{0}: grab 3 hours...".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
-    ))
-    t['grab 3 hours'] = \
-        t['grab'].apply(
-            lambda ts: ts.replace(
-                hour=3*(ts.hour // 3),
-                minute=0,
-                second=0)
+    if 'age group' in t.columns:
+        t.drop('age group', axis=1, inplace=True)
+    else:
+        None
+
+    return t
+
+
+def get_final_status(timegrid):
+    """Calculate final status of appointments to timegrid.
+
+    """
+    if not (isinstance(timegrid, pd.DataFrame)):
+        print('WARNING: input variable "timegrid" is not a dataframe."')
+        return None
+    elif timegrid.empty:
+        print('WARNING: input variable "timegrid" is an empty dataframe.')
+        return None
+    elif not set({'id', 'test', 'appointment', 'grab', 'status'}).issubset(
+            timegrid.columns
+    ):
+        print('WARNING: input variable "timegrid" is missing columns.')
+        print(
+            '(Must contain: "id", "test", "appointment", "grab", "status".'
         )
-    print("{0}: grab day...".format(
-        datetime.datetime.now().strftime("%H:%M:%S")
-    ))
-    t['grab day'] = t['grab'].apply(
-        lambda ts: ts.replace(hour=0, minute=0, second=0)
-    )
+        return None
+    else:
+        None
 
-    # Add status in last hour
-    status_in_hour = \
-        t.groupby(
-            ['id', 'test type', 'appointment', 'grab hour']
-        )['status'].apply(
-            lambda group: "booked" in list(group)
-        ).reset_index()
-
-    status_in_hour['status'] = \
-        status_in_hour['status'].apply(
-            lambda status: "booked" if status else "available"
-        )
-    status_in_hour.rename(
-        index=str,
-        columns={'status': 'status in last hour'},
-        inplace=True
-    )
-
-    t = pd.merge(
-        left=t,
-        right=status_in_hour,
-        on=['id', 'test type', 'appointment', 'grab hour'],
-        how='left'
-    )
-
-    # Add status in last 3 hours
-    status_in_3_hours = \
-        t.groupby(
-            ['id', 'test type', 'appointment', 'grab 3 hours']
-        )['status'].apply(
-            lambda group: "booked" in list(group)
-        ).reset_index()
-    status_in_3_hours['status'] = \
-        status_in_3_hours['status'].apply(
-            lambda status: "booked" if status else "available"
-        )
-    status_in_3_hours.rename(
-        index=str,
-        columns={'status': 'status in last 3 hours'},
-        inplace=True
-    )
-
-    t = pd.merge(
-        left=t,
-        right=status_in_3_hours,
-        on=['id', 'test type', 'appointment', 'grab 3 hours'],
-        how='left'
-    )
-
-    # Add status in last day
-    status_in_day = \
-        t.groupby(
-            ['id', 'test type', 'appointment', 'grab day']
-        )['status'].apply(
-            lambda group: "booked" in list(group)
-        ).reset_index()
-
-    status_in_day['status'] = \
-        status_in_day['status'].apply(
-            lambda status: "booked" if status else "available"
-        )
-    status_in_day.rename(
-        index=str,
-        columns={'status': 'status in last day'},
-        inplace=True
-    )
-
-    t = pd.merge(
-        left=t,
-        right=status_in_day,
-        on=['id', 'test type', 'appointment', 'grab day'],
-        how='left'
-    )
+    # # REMOVE some of the following: too sophisticated at this point
+    # # Add columns with various groups of grabs
+    # print("Add extra grab columns:")
+    # print("{0}: grab hour...".format(
+    #     datetime.datetime.now().strftime("%H:%M:%S")
+    # ))
+    # t['grab hour'] = \
+    #     t['grab'].apply(lambda ts: ts.replace(minute=0, second=0))
+    # print("{0}: grab 3 hours...".format(
+    #     datetime.datetime.now().strftime("%H:%M:%S")
+    # ))
+    # t['grab 3 hours'] = \
+    #     t['grab'].apply(
+    #         lambda ts: ts.replace(
+    #             hour=3*(ts.hour // 3),
+    #             minute=0,
+    #             second=0)
+    #     )
+    # print("{0}: grab day...".format(
+    #     datetime.datetime.now().strftime("%H:%M:%S")
+    # ))
+    # t['grab day'] = t['grab'].apply(
+    #     lambda ts: ts.replace(hour=0, minute=0, second=0)
+    # )
+    #
+    # # Add status in last hour
+    # status_in_hour = \
+    #     t.groupby(
+    #         ['id', 'test', 'appointment', 'grab hour']
+    #     )['status'].apply(
+    #         lambda group: "booked" in list(group)
+    #     ).reset_index()
+    #
+    # status_in_hour['status'] = \
+    #     status_in_hour['status'].apply(
+    #         lambda status: "booked" if status else "available"
+    #     )
+    # status_in_hour.rename(
+    #     index=str,
+    #     columns={'status': 'status in last hour'},
+    #     inplace=True
+    # )
+    #
+    # t = pd.merge(
+    #     left=t,
+    #     right=status_in_hour,
+    #     on=['id', 'test', 'appointment', 'grab hour'],
+    #     how='left'
+    # )
+    #
+    # # Add status in last 3 hours
+    # status_in_3_hours = \
+    #     t.groupby(
+    #         ['id', 'test', 'appointment', 'grab 3 hours']
+    #     )['status'].apply(
+    #         lambda group: "booked" in list(group)
+    #     ).reset_index()
+    # status_in_3_hours['status'] = \
+    #     status_in_3_hours['status'].apply(
+    #         lambda status: "booked" if status else "available"
+    #     )
+    # status_in_3_hours.rename(
+    #     index=str,
+    #     columns={'status': 'status in last 3 hours'},
+    #     inplace=True
+    # )
+    #
+    # t = pd.merge(
+    #     left=t,
+    #     right=status_in_3_hours,
+    #     on=['id', 'test', 'appointment', 'grab 3 hours'],
+    #     how='left'
+    # )
+    #
+    # # Add status in last day
+    # status_in_day = \
+    #     t.groupby(
+    #         ['id', 'test', 'appointment', 'grab day']
+    #     )['status'].apply(
+    #         lambda group: "booked" in list(group)
+    #     ).reset_index()
+    #
+    # status_in_day['status'] = \
+    #     status_in_day['status'].apply(
+    #         lambda status: "booked" if status else "available"
+    #     )
+    # status_in_day.rename(
+    #     index=str,
+    #     columns={'status': 'status in last day'},
+    #     inplace=True
+    # )
+    #
+    # t = pd.merge(
+    #     left=t,
+    #     right=status_in_day,
+    #     on=['id', 'test', 'appointment', 'grab day'],
+    #     how='left'
+    # )
 
     # Add final status
 
+    t = timegrid.copy()
+
     status_final = \
         t.groupby(
-            ['id', 'test type', 'appointment']
+            ['id', 'test', 'appointment']
         )['status'].apply(lambda group: list(group)[-1]).reset_index()
 
     status_final.rename(
@@ -338,9 +368,9 @@ def get_timegrid(schedule, past_appointments=True):
 
     # calculate last grabs
     t_last_grab = t[
-        ['id', 'test type', 'appointment', 'grab']
+        ['id', 'test', 'appointment', 'grab']
     ].groupby(
-        ['id', 'test type', 'appointment']
+        ['id', 'test', 'appointment']
     )['grab'].max().reset_index().rename(
         index=str,
         columns={'grab': 'last grab'}
@@ -350,46 +380,93 @@ def get_timegrid(schedule, past_appointments=True):
     status_final = pd.merge(
         left=status_final,
         right=t_last_grab,
-        on=['id', 'test type', 'appointment'],
+        on=['id', 'test', 'appointment'],
         how='left'
     )
 
     t = pd.merge(
         left=t,
         right=status_final,
-        on=['id', 'test type', 'appointment'],
+        on=['id', 'test', 'appointment'],
         how='left'
     )
 
-    t.rename(
-        index=str,
-        columns={'status': 'status at grab'},
-        inplace=True
-    )
-    t = t[[
-        'id',
-        'test type',
-        'appointment',
-        'grab',
-        'status at grab',
-        'grab hour',
-        'status in last hour',
-        'grab 3 hours',
-        'status in last 3 hours',
-        'grab day',
-        'status in last day',
-        'last grab',
-        'final status'
-    ]]
+    t = t[['id', 'test', 'appointment', 'last grab', 'final status']]
+    t.drop_duplicates(inplace=True)
 
     return t
+
+
+def get_activity(timegrid):
+    """Add naive activity to timegrid dataframe.
+
+    Returns a copy of input dataframe with additional column 'action'
+    with value 'book' if appointment was booked at grab; 'cancel' if
+    appointment was cancelled at grab; or 'none' otherwise.
+    """
+    if not (isinstance(timegrid, pd.DataFrame)):
+        print('WARNING: input variable "timegrid" is not a dataframe."')
+        return timegrid.copy()
+    elif timegrid.empty:
+        print('WARNING: input variable "timegrid" is an empty dataframe.')
+        return timegrid.copy()
+    elif not set({'id', 'test', 'appointment', 'grab', 'status'}).issubset(
+            timegrid.columns
+    ):
+        print('WARNING: input variable "timegrid" is missing columns.')
+        print(
+            '(Must contain: "id", "test", "appointment", "grab", "status".'
+        )
+        return timegrid.copy()
+    else:
+        None
+    activity = timegrid.copy()
+
+    activity['action'] = \
+        activity['status'].apply(
+            lambda status: 1 if status == 'available' else 0
+        )
+
+    activity['forward'] = activity.groupby(
+        ['id', 'test', 'appointment']
+    )['action'].shift(1)
+    activity['forward'].fillna(activity['action'], inplace=True)
+    activity['forward'] = activity['forward'].astype(int)
+    activity['f diff'] = activity['forward'] - activity['action']
+    activity['f diff'] = activity['f diff'].apply(
+        lambda diff: 1 if diff == 1 else 0
+    )
+
+    activity['backward'] = activity.groupby(
+        ['id', 'test', 'appointment']
+    )['action'].shift(-1)
+    activity['backward'].fillna(activity['action'], inplace=True)
+    activity['backward'] = activity['backward'].astype(int)
+    activity['b diff'] = activity['backward'] - activity['action']
+    activity['b diff'] = activity['b diff'].apply(
+        lambda diff: 1 if diff == 1 else 0
+    )
+    activity['b diff'] = activity['b diff'].shift(1)
+    activity['b diff'].fillna(0, inplace=True)
+    activity['b diff'] = activity['b diff'].astype(int)
+
+    activity['action'] = activity['f diff'] - activity['b diff']
+    activity['action'] = activity['action'].apply(
+        lambda action: "cancel" if action == 1 else (
+            "book" if action == -1 else "none")
+    )
+
+    activity = activity[['id', 'test', 'appointment', 'grab', 'action']]
+    activity = activity.query('action != "none"')
+
+    return activity
 
 
 def get_occupancy(timegrid):
 
     occupancy = timegrid.loc[
         timegrid.index,
-        ['id', 'test type', 'appointment', 'final status']
+        ['id', 'test', 'appointment', 'final status']
     ]
 
     # Overall occupancy
@@ -397,7 +474,7 @@ def get_occupancy(timegrid):
     print("Calculate overall occupancy rate:")
     print("Calculate counts...")
     counts = occupancy.groupby(
-        ['id', 'test type']
+        ['id', 'test']
     )['final status'].value_counts().to_frame().rename(
         index=str,
         columns={'final status': 'count'}
@@ -408,7 +485,7 @@ def get_occupancy(timegrid):
         pd.pivot_table(
             counts,
             values='count',
-            index=['id', 'test type'],
+            index=['id', 'test'],
             columns=['final status']
         ).fillna(0).astype(int)
 
@@ -426,8 +503,8 @@ def get_occupancy(timegrid):
     print("Merge rates with occupancy...")
     occupancy = pd.merge(
         left=occupancy,
-        right=rates[['id', 'test type', 'rate']],
-        on=['id', 'test type'],
+        right=rates[['id', 'test', 'rate']],
+        on=['id', 'test'],
         how='left'
     )
     occupancy.rename(
@@ -445,7 +522,7 @@ def get_occupancy(timegrid):
     )
     print("Calculate daily counts...")
     counts_daily = occupancy.groupby(
-        ['id', 'test type', 'appointment day']
+        ['id', 'test', 'appointment day']
     )['final status'].value_counts().to_frame().rename(
         index=str,
         columns={'final status': 'count'}
@@ -456,7 +533,7 @@ def get_occupancy(timegrid):
         pd.pivot_table(
             counts_daily,
             values='count',
-            index=['id', 'test type', 'appointment day'],
+            index=['id', 'test', 'appointment day'],
             columns=['final status']
         ).fillna(0).astype(int)
 
@@ -474,8 +551,8 @@ def get_occupancy(timegrid):
     print("Merge with occupancy...")
     occupancy = pd.merge(
         left=occupancy,
-        right=rates_daily[['id', 'test type', 'appointment day', 'rate']],
-        on=['id', 'test type', 'appointment day'],
+        right=rates_daily[['id', 'test', 'appointment day', 'rate']],
+        on=['id', 'test', 'appointment day'],
         how='left'
     )
     occupancy.rename(
@@ -493,7 +570,7 @@ def get_occupancy(timegrid):
     )
     print("Calculate hourly counts...")
     counts_hourly = occupancy.groupby(
-        ['id', 'test type', 'appointment hour']
+        ['id', 'test', 'appointment hour']
     )['final status'].value_counts().to_frame().rename(
         index=str,
         columns={'final status': 'count'}
@@ -504,7 +581,7 @@ def get_occupancy(timegrid):
         pd.pivot_table(
             counts_hourly,
             values='count',
-            index=['id', 'test type', 'appointment hour'],
+            index=['id', 'test', 'appointment hour'],
             columns=['final status']
         ).fillna(0).astype(int)
 
@@ -522,8 +599,8 @@ def get_occupancy(timegrid):
     print("Merge with occupancy...")
     occupancy = pd.merge(
         left=occupancy,
-        right=rates_hourly[['id', 'test type', 'appointment hour', 'rate']],
-        on=['id', 'test type', 'appointment hour'],
+        right=rates_hourly[['id', 'test', 'appointment hour', 'rate']],
+        on=['id', 'test', 'appointment hour'],
         how='left'
     )
     occupancy.rename(
@@ -535,75 +612,8 @@ def get_occupancy(timegrid):
     return occupancy
 
 
-def compare_against_timegrid(schedule, timegrid):
-    """Compare records of available appointments against timegrid.
-
-    Parameters
-    ----------
-
-    schedule:
-
-    Dataframe with records of available appointments
-
-    timegrid:
-
-    Timegrid of appointments
-
-    Returns
-    -------
-    schedule_against_timegrid:
-
-    Dataframe indicating whether appointments are available at all
-    grab timestamps
-
-    """
-    schedule_against_timegrid = pd.merge(
-        timegrid,               # timegrid_duplicate
-        schedule.assign(key=1),
-        on=['id', 'test type', 'appointment', 'grab'],
-        how='outer'
-    )
-    # schedule_against_timegrid.fillna(0, inplace=True)
-    # schedule_against_timegrid['key'] = \
-    #     schedule_against_timegrid['key'].astype(int)
-
-    return schedule_against_timegrid
 
 
-def label_action(df, col='key'):
-    """Detects booking and cancellation in dataframe.
-
-    The dataframe
-
-    Parameters
-    ----------
-
-    df:
-
-    dataframe with 0's and 1's.  Rows are assumed to be labeled by
-    timestamps representing time of data collection, and the column
-    'key' represents the availability of one appointment: 0  if it is
-    available, 1 if not.
-
-    Returns
-    -------
-
-    df:
-
-    the dataframe passed in, modified in place, replacing a transition
-    from 0 to 1 with "cancel", a transition from 1 to 0 with "book",
-    and "none" otherwise.
-
-    """
-    df[col] = df[col] - df[col].shift(1)
-    # df[col].fillna(method='bfill', inplace=True)
-    df[col].fillna(0, inplace=True)
-    df[col] = df[col].astype(int)
-    df[col] = df[col].apply(
-        lambda delta: "cancel" if delta == 1 else (
-            "book" if delta == -1 else "none")
-    )
-    return df
 
 
 def get_first_appearance(schedule):
@@ -616,7 +626,7 @@ def get_first_appearance(schedule):
     schedule:
 
     dataframe representing available appointments at grab times.
-    Assumed with columns 'id', 'test type', 'grab', 'appointment'.
+    Assumed with columns 'id', 'test', 'grab', 'appointment'.
 
 
     first_appearance:
@@ -637,7 +647,7 @@ def get_first_appearance(schedule):
         lambda ts: ts.tz_convert(tz_utc)
     )
     first_appearance = sched.groupby(
-        ['id', 'test type', 'appointment']
+        ['id', 'test', 'appointment']
     )[['grab']].min()
     first_appearance.rename(
         index=str,
@@ -667,7 +677,7 @@ def get_first_posting(schedule):
     schedule:
 
     dataframe representing available appointments at grab times.
-    Assumed with columns 'id', 'test type', 'grab', 'appointment'.
+    Assumed with columns 'id', 'test', 'grab', 'appointment'.
 
 
     first_appearance:
@@ -696,7 +706,7 @@ def get_first_posting(schedule):
         inplace=True
     )
     first_posting = sched.groupby(
-        ['id', 'test type', 'appointment date']
+        ['id', 'test', 'appointment date']
     )[['grab']].min()
     first_posting.rename(
         index=str,
@@ -835,553 +845,56 @@ def get_date_range(s, freq="D"):
     return date_range
 
 
-class UHCW:
-    """Main data structure in UHCW project.
-
-    A UNCW object is instantiated from dataframe raw_data
-    The main attributes are:
-    - center_info: contains information about id, age group, and test
-    types of centers present in the dataset
-    - schedule: essentially the data passed in at instantiated, except
-    that it has been converted to proper types, and the age group
-    column removed from raw_data
-    - timegrid: lists of pairs (grab, appointment) present in the
-    dataset, labeled by (id, test type) pairs, and with grabs
-    occurring after appointments removed.
-    - occupancy: timegrid extended with 'status' column indicating
-    whether appointment is available or not
-    - first_appearance: timestamps where appointments appear first in
-    the data set
-    - hitory: history of appointments, i.e. all bookings and
-    cancellations detected in dataset
-    - naive_history: this is an intermediate dataframe, kept for
-    debugging purposes.
-    Only the attributes center_info and schedule is generated at
-    instantiation. The others are generatedy via 'build' methods.
-
-    NOTE ON TIMEZONES.
-
-    All datetime values will be in the London-timezone.  When
-    performing certain operations, these will sometimes be converted
-    to other types (object, i.e. string).  In order to avoid errors,
-    it is safer to begin with a conversion to the UTC standard, and
-    end with a conversion back to the London timezone (with the
-    appropriate) localization in between.
-
-    """
-    def __init__(self, schedule):
-        """Instatiation of object of class UHCW.
-
-        Parameters
-        ----------
-
-        raw_data:
-
-        dataframe containing data from UHCW online appointment booking
-        system.  Presumed to have columns 'id', 'test type', 'age group',
-        'grab', 'appointment'.  Each row represents an available
-        appointment at a given time (grab):
-        - id: id number of test center offering appointment
-        - test type: type of blood test administered
-        - age group: age group servied (adult or child)
-        - grab: timestamp (UTC) of collection of data
-        - appointment: timestamp (local, Coventry, UK) of appointment
-
-        The columns are assumed of type object (string) and converted
-        at instantiation.
-
-        """
-        self.schedule, self.center_info = decouple_data(schedule)
-        self.timegrid = None
-        self.final_status = None
-        self.occupancy = None
-        self.first_appearance = None
-        self.first_posting = None
-        self.naive_history = None
-        self.history = None
-
-    def build_timegrid(self):
-        """Generate timegrid of schedule attribute and assign it to
-        timegrid attribute of object.
-
-        """
-
-        self.timegrid = get_timegrid(self.schedule)
-
-        return None
-
-    # def build_occupancy(self):
-    #     """Generate dataframe of occupancy and assign it to attribute.
-    #     """
-    #     self.occupancy = get_occupancy(self.schedule)
-    #
-    #     return None
-
-    # def build_final_status(self):
-    #     """Generate dataframe with final status (booked or available) of
-    #     appointments.
-    #     """
-    #     if self.timegrid is None:
-    #         self.build_timegrid()
-    #     self.final_status = get_final_status(self.timegrid)
-    #
-    #     return None
-
-    def build_occupancy(self):
-
-        if self.timegrid is None:
-            self.build_timegrid()
-
-        self.occupancy = get_occupancy(self.timegrid)
-
-        return None
-
-    def build_first_appearance(self):
-        """Generate dataframe of first appearance datetimes and assign
-        it to first_appearance attribute of object."""
-
-        self.first_appearance = get_first_appearance(self.schedule)
-
-        return None
-
-    def build_first_posting(self):
-        """Generate dataframe of first datetimes and assign it to
-        first_appearance attribute of object.
-
-        """
-
-        self.first_posting = get_first_posting(self.schedule)
-
-        return None
-
-    def build_naive_history(self):
-        """Generate booking history without correcting for artefacts.
-
-        Attempts to create history of appointments, i.e. all bookings
-        and cancellations of each appointment in dataset.  This is
-        only an auxiliary object, as artefacts need to be corrected.
-
-        Artefacts are due to the appointments being online an
-        arbitrary number of days prior to the date.  Their
-        'disappearance' is incorrectly interpreted as cancellation.
-
-        Parameters:
-        ----------
-
-        self
-
-        Returns:
-        -------
-
-        naive_history:
-
-        dataframe with mostly correct bookings and cancellations,
-        where artefacts are yet to be corrected.
-
-        """
-
-        # Will need timegrid
-        if self.timegrid is None:
-            self.build_timegrid()
-
-        # df_compare = compare_against_timegrid(
-        #     self.schedule, self.timegrid
-        # )
-
-        df_compare = \
-            self.timegrid[
-                ['id', 'test type', 'appointment', 'grab', 'status at grab']
-            ].copy()
-
-        df_compare['status at grab'] = \
-            df_compare['status at grab'].apply(
-                lambda status: 1 if status == 'available' else 0
-            )
-
-        df_compare.rename(
-            index=str,
-            columns={'status at grab': 'action'}
-        )
-        self.naive_history = df_compare
-
-        return
-
-    def joe(self):
-        # Detect bookings and cancellations
-        df_action = df_compare.groupby(
-            ['id', 'test type', 'appointment']
-        ).apply(label_action)
-        df_action.rename(
-            index=str,
-            columns={'status at grab': 'action'},  # key
-            inplace=True
-        )
-        self.naive_history = df_action.loc[df_action['action'] != "none", :]
-
-        return None
-
-    def remove_artefacts(self):
-        """Remove artefacts from naive history and save it as history"""
-
-        if self.first_posting is None:
-            self.build_first_posting()
-
-        naive_history = self.naive_history.copy()
-        naive_history['appointment date'] = \
-            naive_history['appointment'].apply(
-                lambda ts: ts.replace(hour=0, minute=0, second=0)
-            )
-
-        genuine_history = pd.merge(
-            left=naive_history,
-            right=self.first_posting,
-            left_on=['id', 'test type', 'grab', 'appointment date'],
-            right_on=['id', 'test type', 'first posting', 'appointment date'],
-            how='left',
-            indicator=True
-        )
-        genuine_history = genuine_history.loc[
-            genuine_history['first posting'].isna(), :
-        ]
-
-        self.history = genuine_history
-
-        return None
-
-    def build_history(self):
-        """Generate booking history.
-
-        Create history of appointments, i.e. all bookings and
-        cancellations of each appointment in dataset.
-
-        Parameters:
-        ----------
-
-        self
-
-        Returns:
-        -------
-
-        history:
-
-        dataframe with bookings and cancellations.
-        """
-
-        if self.naive_history is None:
-            self.build_naive_history()
-
-        self.remove_artefacts()
-
-        return None
-
-    def plot(
-            self,
-            feature='schedule',
-            x_freq="W",
-            y_freq="H",
-            figsize=(16, 6),
-            savefigure=False
-    ):
-        """Plotting functionality.
-
-        Parameters:
-        ----------
-
-        feature:
-
-        string specifying name of attribute to plot, among 'schedule',
-        'timegrid', 'first_appearance', 'first_posting', 'history',
-        'naive history'
-
-        x_freq, y_freq:
-
-        frequencies for ticks on x- and y-axes
-
-        figsize:
-
-        size of figure
-
-        savefigure:
-
-        automatically saves plot as image file if True, location being
-        specified by IMG_DIR
-
-        Returns:
-        -------
-
-        ax, filepath where:
-
-        ax:
-
-        axis of figure plot
-
-        filepath:
-
-        full path of image file if saved, otherwise None
-
-        TODO: streamline parts with center id, test types, labeling etc.
-
-        """
-
-        # Create first bit in title - completed below
-        if len(self.center_info.index) == 0:
-            title = ""
-        elif len(self.center_info.index) > 1:
-            title = "for {0} centers".format(
-                len(self.center_info.index)
-            )
-        else:
-            center_test_types = self.center_info.iloc[0]['test types']
-            if len(center_test_types) == 0:
-                title = ""
-            elif len(center_test_types) > 1:
-                title = "for center {0} ({1} test types)".format(
-                    self.center_info.index[0],
-                    len(center_test_types)
-                )
-            else:
-                title = "for center {0} ({1})".format(
-                    self.center_info.index[0],
-                    center_test_types[0]
-                )
-
-        if feature == 'schedule':
-            x = 'appointment'
-            y = 'grab'
-            df = self.schedule[[x, y]]
-            plot_style = {
-                "marker": '.',
-                'markersize': 3,
-                'linestyle': ""
-            }
-            title = " ".join(["Schedule", title])
-            x_label = "Appointment"
-            y_label = "Data collection"
-            legend_text = []
-        elif feature == 'timegrid':
-            x = 'appointment'
-            y = 'grab'
-            df = self.timegrid[[x, y]]
-            plot_style = {
-                "marker": '.',
-                'markersize': 3,
-                'linestyle': ""
-            }
-            title = " ".join(["Timegrid", title])
-            x_label = "Appointment"
-            y_label = "Data collection"
-            legend_text = []
-        elif feature == 'first appearance':
-            x = 'appointment'
-            y = 'first appearance'
-            df = self.first_appearance[[x, y]]
-            plot_style = {
-                "marker": '.',
-                'markersize': 3,
-                'markeredgecolor': "k",
-                'markerfacecolor': "w",
-                'linestyle': ""
-            }
-            title = " ".join(["First appearance", title])
-            x_label = "Appointment"
-            y_label = "First appearance"
-            legend_text = []
-        elif feature == 'first posting':
-            x = 'appointment date'
-            y = 'first posting'
-            df = self.first_posting[[x, y]]
-            plot_style = {
-                "marker": '.',
-                'markersize': 3,
-                'markeredgecolor': "k",
-                'markerfacecolor': "w",
-                'linestyle': ""
-            }
-            title = " ".join(["First posting", title])
-            x_label = "Appointment date"
-            y_label = "First appearance"
-            legend_text = []
-        elif feature == 'history':
-            x = 'appointment'
-            y = 'grab'
-            df = self.history[[x, y, 'action']]
-            plot_style = {
-                "marker": '+',
-                'markersize': 10,
-                'linestyle': ""
-            }
-            title = " ".join(["History", title])
-            x_label = "Appointment"
-            y_label = "Action"
-            legend_text = []
-        elif feature == 'naive history':
-            x = 'appointment'
-            y = 'grab'
-            df = self.naive_history[[x, y, 'action']]
-            plot_style = {
-                'marker': "+",
-                'markersize': 10,
-                # "marker": '.',
-                # 'markersize': 10,
-                # 'markeredgecolor': 'k',
-                'linestyle': ""
-            }
-            title = " ".join(['"Naive" history', title])
-            x_label = "Appointment"
-            y_label = "Action"
-            legend_text = []
-
-        # x- and y-axes ticks and tick labels
-        x_freq = x_freq  # "W"
-        x_date_range, x_tick_labels = get_ticks(df[x], x_freq)
-        y_freq = y_freq  # "H"
-        y_date_range, y_tick_labels = get_ticks(df[y], y_freq)
-
-        # Plot
-        fig, ax = plt.subplots(figsize=figsize)
-        if feature in ['naive history', 'history']:
-
-            for action in ['book', 'cancel']:
-                df_one_action = df.loc[
-                    df['action'] == action, [x, y]
-                ]
-                if not df_one_action.empty:
-                    legend_text.append(action)
-                    df_one_action.plot(
-                        x=x,
-                        y=y,
-                        **plot_style,
-                        figsize=figsize,
-                        ax=ax
-                    )
-        else:
-            df.plot(x=x, y=y, **plot_style, figsize=figsize, ax=ax)
-
-        # Labeling
-        ax.set_title(title, fontsize=18)
-        ax.set_xlabel(x_label)
-        ax.set_ylabel(y_label)
-        ax.set_xticks(x_date_range)
-        ax.set_xticklabels(x_tick_labels)
-        ax.set_yticks(y_date_range)
-        ax.set_yticklabels(y_tick_labels)
-        if not(legend_text is []):
-            ax.legend(legend_text)
-        else:
-            ax.get_legend().remove()
-
-        ax.grid()
-
-        if savefigure:
-            if len(self.center_info.index) == 0:
-                filename = "{0}-empty-figure-{1}.png".format(
-                    datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
-                    "-".join(feature.split())
-                )
-            elif len(self.center_info.index) > 1:
-                filename = "{0}-{1}-centers-{2}.png".format(
-                    datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
-                    len(self.center_info.index),
-                    "-".join(feature.split())
-                )
-            else:
-                center_test_types = self.center_info.iloc[0]['test types']
-
-                if not(len(center_test_types) == 1):
-                    filename = \
-                        "{0}-center-{1}-{2}-test-types-{3}.png".format(
-                            datetime.datetime.now().strftime(
-                                "%Y-%m-%d-%H-%M-%S"
-                            ),
-                            self.center_info.index[0],
-                            len(center_test_types[0]),
-                            "-".join(feature.split())
-                        )
-                else:
-                    filename = \
-                        "{0}-center-{1}-{2}-{3}.png".format(
-                            datetime.datetime.now().strftime(
-                                "%Y-%m-%d-%H-%M-%S"
-                            ),
-                            self.center_info.index[0],
-                            "-".join(center_test_types[0].split()),
-                            "-".join(feature.split())
-                        )
-
-            filepath = os.path.join(IMG_DIR, filename)
-            plt.savefig(filepath)
-        else:
-            filepath = None
-
-        return ax, filepath
-
-
-
-
-
-foldername = 'Projects/UHCW'
-filename = 'appointments-tiny.csv'
-
-filepath = os.path.join(os.path.expanduser("~"), foldername, filename)
-
-raw_data = pd.read_csv(filepath, sep=';')
-raw_data.rename(
-    index=str,
-    columns={
-        'center id': 'id',
-        'appointment timestamp': 'appointment',
-        'center age group': 'age group',
-        'grab timestamp': 'grab'
-    },
-    inplace=True
-)
-
-schedule = prepare_UHCW_dataframe(raw_data)
-
-# Calculate number of appointments
-schedule.groupby(
-    ['id', 'test type']
-)['appointment'].nunique().to_frame()
-
-# Test first "by hand"
-# s = schedule.copy()
-# t = get_timegrid(s)
-
-uhcw = UHCW(schedule)
-s = uhcw.schedule
-uhcw.build_timegrid()
-t = uhcw.timegrid
-
-
 
 
 if __name__ == "__main__":
     print("")
 
-    # --------------------
-    # Load 24-hour dataset
-    #
-    # foldername = 'Projects/UHCW'
-    # filename = 'sample_appointments.csv'
+    foldername = 'Projects/UHCW'
+    filename = 'appointments-tiny.csv'
+    # filename = 'appointments-less-tiny.csv'
+    # filename = 'appointments-one-week-two-centers.csv'
+    # filename = 'appointments-24-hours.csv'
+    # filename = 'appointments-one-week.csv'
+    # filename = 'appointments-six-weeks.csv'
+    # filename = 'appointments-three-weeks.csv'
 
-    # --------------------
-    # Load 3-week dataset
-    #
-    # foldername = 'Data/UHCW'
-    # filename = 'appointments.csv'
+    filepath = os.path.join(os.path.expanduser("~"), foldername, filename)
 
-    # --------------------
-    # Load tiny dataset
+    raw_data = pd.read_csv(filepath, sep=';')
+    raw_data.rename(
+        index=str,
+        columns={
+            'center id': 'id',
+            'test type': 'test',
+            'appointment timestamp': 'appointment',
+            'center age group': 'age group',
+            'grab timestamp': 'grab'
+        },
+        inplace=True
+    )
 
+    schedule = prepare_UHCW_dataframe(raw_data)
 
-    # --------------------
+    # Calculate number of appointments
+    schedule.groupby(
+        ['id', 'test']
+    )['appointment'].nunique().to_frame()
 
-
-    # occ = get_occupancy(t)
+    # Test first "by hand"
+    s = schedule.copy()
+    t = get_timegrid(s)
+    f = get_final_status(t)
+    a = get_activity(t)
 
 
     # uhcw = UHCW(schedule)
     # uhcw.build_timegrid()
 
     # uhcw.build_occupancy()
+    # occ = get_occupancy(t)
 
+    # uhcw = UHCW(schedule)
+    # s = uhcw.schedule
+    # uhcw.build_timegrid()
+    # t = uhcw.timegrid
