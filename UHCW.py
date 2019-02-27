@@ -1,34 +1,37 @@
 #!/usr/bin/env python3
 """Module with custom functions and classes for UHCW project."""
+# --------------------
+# IMPORTS
+# --------------------
 import os
 import pytz
 import pandas as pd
 import datetime
-# import matplotlib.pyplot as plt
 
+# --------------------
 # CONSTANTS
+# --------------------
 tz_utc = pytz.timezone("UTC")  # timestamp is in UTC standard
 tz_london = pytz.timezone("Europe/London")  # test centers are in Coventry, UK
 
 IMG_DIR = os.path.join(os.path.expanduser("~"), "Projects/UHCW/IMAGE_FILES")
 
 # --------------------
-# Functions
+# FUNCTIONS
 # --------------------
-# Generic dataframe operations
 
 
 def prepare_UHCW_dataframe(raw_data):
-    """Convert columns of input dataframe to appropriate types.
+    """Perform type conversion and column renaming.
 
     Parameters
     ----------
 
     raw_data:
 
-    dataframe containing data from UHCW online appointment booking
+    Dataframe containing data from UHCW online appointment booking
     system.  Each row represents an available appointment at a given
-    time (grab).
+    time (grab) posted on platform.
 
     Assumptions:
 
@@ -42,12 +45,22 @@ def prepare_UHCW_dataframe(raw_data):
     - grab: timestamp (UTC) of collection of data
     - appointment: timestamp (local, Coventry, UK) of appointment
 
+    Returns:
+    -------
+
+    schedule:
+
+    Dataframe where each row corresponds to an appointment posted as
+    available on the platform.  The columns must include 'id', 'test',
+    'appointment', 'grab'.  The dataframe is sorted by values in the
+    order: 'id', 'test', 'appointment', 'grab'.
+
     """
     FMT_TIME = "%Hh%Mm%Ss"
     print("{0}: Make copy of data...".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
-    df = raw_data.copy()
+    schedule = raw_data.copy()
 
     print("{0}: Type conversion: ".format(
         datetime.datetime.now().strftime(FMT_TIME)
@@ -58,11 +71,11 @@ def prepare_UHCW_dataframe(raw_data):
     print("{0}: Convert to datetime...".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
-    df['appointment'] = pd.to_datetime(df['appointment'])
+    schedule['appointment'] = pd.to_datetime(schedule['appointment'])
     print("{0}: Convert to London timezone...".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
-    df['appointment'] = df['appointment'].apply(
+    schedule['appointment'] = schedule['appointment'].apply(
         lambda ts: ts.tz_localize(tz_london)
     )
 
@@ -72,20 +85,26 @@ def prepare_UHCW_dataframe(raw_data):
     print("{0}: Convert to datetime...".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
-    df['grab'] = pd.to_datetime(df['grab'])
+    schedule['grab'] = pd.to_datetime(schedule['grab'])
     print("{0}: Localize to UTC and convert to London timezone...".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
-    df['grab'] = df['grab'].apply(
+    schedule['grab'] = schedule['grab'].apply(
         lambda ts: ts.tz_localize(tz_utc).tz_convert(tz_london)
     )
 
-    df = df[['id', 'test', 'age group', 'appointment', 'grab']]
+    schedule = schedule[
+        ['id', 'test', 'age group', 'appointment', 'grab']
+    ]
+    schedule.sort_values(
+        ['id', 'test', 'appointment', 'grab'],
+        inplace=True
+    )
 
-    return df
+    return schedule
 
 
-def decouple_data(schedule):
+def get_center_info(schedule):
     """Create list of test centers with their tests.
 
     Parameters:
@@ -93,67 +112,56 @@ def decouple_data(schedule):
 
     schedule:
 
-    dataframe whose columns contain 'id', 'test', and 'age group'
+    Dataframe whose columns contain 'id', 'test', and 'age group'
 
     Returns:
     -------
 
     center_info:
 
-    dataframe indexed by center id, and two columns: 'age group'
-    indicating age group serviced at test center, and 'tests', a
-    list of tests administered at test center.
-
-    TODO: there has to be a more natural way to extract the center info
+    Dataframe containing id, age group served, and test types
+    administered at centers.  It is indexed by the center id and has
+    two columns 'test' and 'age group'.  A center serves only one age
+    group, but may administer several types of test.
 
     """
 
-    s = schedule.copy()
+    center_info = schedule[
+        ['id', 'age group', 'test']
+    ].drop_duplicates()
+    center_info.sort_values(['id', 'test'])
+    center_info.set_index('id', inplace=True)
 
-    center_test_types =  \
-        s.groupby('id')['test'].unique().rename(
-            "tests"
-        ).to_frame()
-    center_age_group = \
-        s.groupby('id')['age group'].unique().to_frame()
-
-    center_info = \
-        pd.merge(
-            center_test_types,
-            center_age_group,
-            on='id',
-            how='outer'
-        )
-
-    s.drop('age group', axis=1, inplace=True)
-
-    return s, center_info
+    return center_info
 
 
-def get_timegrid(schedule, past_appointments=True):
-    """Generate grid of (grab, appointment) pairs appearing in
-    dataset, excluding those with grab occurring after appointment.
+def get_history(schedule, past_appointments=True):
+    """Generate history from schedule.
 
-    Parameters
+    Parameters:
     ----------
 
     schedule:
 
-    Dataframe with columns 'id', 'test', 'grab', 'appointment',
-    recording available appointments at grab times.
+    Dataframe where each row corresponds to an appointment posted as
+    available on the platform.  The columns must include 'id', 'test',
+    'appointment', 'grab'.
 
     past_appointments:
 
     boolean, indicates whether only past appointments should be kept
+    (the schedule contains information about availability of
+    appointments that are still in the future).
 
-    Returns - TODO: update this part
+    Returns:
     -------
 
-    timegrid:
+    history:
 
-    Dataframe with columns 'id', 'test', 'grab', 'appointment', 'status'
-    which, for each (id, test) pair, contains all pairs (grab,
-    appointment) where grab and appointment appearing in dataset.
+    Dataframe recording status ('available' or 'booked') of all
+    appointments appearing in the dataset, at all grab times
+    appearing in the dataset (for the same center id and test type).
+    The columns are 'id', 'test', 'grab', 'appointment', 'status'.
 
     """
 
@@ -184,7 +192,7 @@ def get_timegrid(schedule, past_appointments=True):
             :, ['id', 'test', 'appointment']
         ].drop_duplicates().reset_index(drop=True)
 
-    t = pd.merge(
+    h = pd.merge(
         left=grabs,
         right=appointments,
         on=['id', 'test'],
@@ -192,8 +200,8 @@ def get_timegrid(schedule, past_appointments=True):
     )
 
     print("Ignore grabs past appointments...")
-    t.query('grab <= appointment', inplace=True)
-    t.sort_values(['appointment', 'grab'], inplace=True)
+    h.query('grab <= appointment', inplace=True)
+    h.sort_values(['appointment', 'grab'], inplace=True)
 
     if past_appointments:
         last_grab = schedule['grab'].max()
@@ -202,9 +210,9 @@ def get_timegrid(schedule, past_appointments=True):
                 last_grab
             )
         )
-        t.query('appointment <= @last_grab', inplace=True)
+        h.query('appointment <= @last_grab', inplace=True)
 
-    t.sort_values(
+    h.sort_values(
         ['id', 'test', 'appointment', 'grab'],
         inplace=True
     )
@@ -212,7 +220,7 @@ def get_timegrid(schedule, past_appointments=True):
     # Add column indicating whether appointment available or booked
     print("Add status...")
     t = pd.merge(
-        left=t,
+        left=h,
         right=schedule,
         on=['id', 'test', 'appointment', 'grab'],
         how='left',
@@ -232,20 +240,38 @@ def get_timegrid(schedule, past_appointments=True):
     return t
 
 
-def get_final_status(timegrid):
-    """Calculate final status of appointments to timegrid.
+def get_final_status(history):
+    """Calculate final status of appointments from history.
+
+    Parameters:
+    ----------
+
+    history:
+
+    Dataframe recording status ('available' or 'booked') of
+    appointments appearing at a list of grab times.  The columns must
+    include 'id', 'test', 'appointment', 'grab', 'status'.
+
+    Returns:
+    -------
+
+    final_status:
+
+    Dataframe with status ('available' or 'booked') of appointments at
+    last grab times.  The columns are 'id', 'test', 'appointment',
+    'last grab' and 'final status'.
 
     """
-    if not (isinstance(timegrid, pd.DataFrame)):
-        print('WARNING: input variable "timegrid" is not a dataframe."')
+    if not (isinstance(history, pd.DataFrame)):
+        print('WARNING: input variable "history" is not a dataframe."')
         return None
-    elif timegrid.empty:
-        print('WARNING: input variable "timegrid" is an empty dataframe.')
+    elif history.empty:
+        print('WARNING: input variable "history" is an empty dataframe.')
         return None
     elif not set({'id', 'test', 'appointment', 'grab', 'status'}).issubset(
-            timegrid.columns
+            history.columns
     ):
-        print('WARNING: input variable "timegrid" is missing columns.')
+        print('WARNING: input variable "history" is missing columns.')
         print(
             '(Must contain: "id", "test", "appointment", "grab", "status".'
         )
@@ -253,7 +279,9 @@ def get_final_status(timegrid):
     else:
         None
 
-    # # REMOVE some of the following: too sophisticated at this point
+    # # COMMENT OUT some of the following for the moment: too
+    # # sophisticated at this point
+
     # # Add columns with various groups of grabs
     # print("Add extra grab columns:")
     # print("{0}: grab hour...".format(
@@ -354,20 +382,23 @@ def get_final_status(timegrid):
 
     # Add final status
 
-    t = timegrid.copy()
+    h = history[
+        ['id', 'test', 'appointment', 'grab', 'status']
+    ].copy()
+    h.sort_values(['id', 'test', 'appointment', 'grab'])
 
-    status_final = \
-        t.groupby(
+    final_status = \
+        h.groupby(
             ['id', 'test', 'appointment']
         )['status'].apply(lambda group: list(group)[-1]).reset_index()
 
-    status_final.rename(
+    final_status.rename(
         index=str, columns={'status': 'final status'},
         inplace=True
     )
 
     # calculate last grabs
-    t_last_grab = t[
+    last_grabs = h[
         ['id', 'test', 'appointment', 'grab']
     ].groupby(
         ['id', 'test', 'appointment']
@@ -376,51 +407,73 @@ def get_final_status(timegrid):
         columns={'grab': 'last grab'}
     )
 
-    # include last grabs
-    status_final = pd.merge(
-        left=status_final,
-        right=t_last_grab,
+    # merge last grabs with final status
+    final_status = pd.merge(
+        left=final_status,
+        right=last_grabs,
         on=['id', 'test', 'appointment'],
         how='left'
     )
 
-    t = pd.merge(
-        left=t,
-        right=status_final,
+    final_status = pd.merge(
+        left=h,
+        right=final_status,
         on=['id', 'test', 'appointment'],
         how='left'
     )
 
-    t = t[['id', 'test', 'appointment', 'last grab', 'final status']]
-    t.drop_duplicates(inplace=True)
+    final_status = final_status[
+        ['id', 'test', 'appointment', 'last grab', 'final status']
+    ]
+    final_status.drop_duplicates(inplace=True)
+    # final_status.reset_index(drop=True, inplace=True)
 
-    return t
+    return final_status
 
 
-def get_activity(timegrid):
-    """Add naive activity to timegrid dataframe.
+def get_activity(history):
+    """Detect activity in history.
 
-    Returns a copy of input dataframe with additional column 'action'
-    with value 'book' if appointment was booked at grab; 'cancel' if
-    appointment was cancelled at grab; or 'none' otherwise.
+    Parameters:
+    ----------
+
+    history:
+
+    Dataframe recording status ('available' or 'booked') of
+    appointments appearing at a list of grab times.  The columns must
+    include 'id', 'test', 'appointment', 'grab', 'status'.
+
+    Returns:
+    -------
+
+    activity:
+
+    Dataframe where each row corresponds to an action: either booking
+    or cancellation.  The columns are 'id', 'test', 'appointment',
+    'grab', 'previous grab', and 'action'.  In a row, the value of
+    'action' is 'cancel' if the appointment is not available at the
+    row and it is available at the previous row.  The value of
+    'action' is 'book', if the appointment is available at the current
+    row and not at the previous row.
+
     """
-    if not (isinstance(timegrid, pd.DataFrame)):
-        print('WARNING: input variable "timegrid" is not a dataframe."')
-        return timegrid.copy()
-    elif timegrid.empty:
-        print('WARNING: input variable "timegrid" is an empty dataframe.')
-        return timegrid.copy()
+    if not (isinstance(history, pd.DataFrame)):
+        print('WARNING: input variable "history" is not a dataframe."')
+        return history.copy()
+    elif history.empty:
+        print('WARNING: input variable "history" is an empty dataframe.')
+        return history.copy()
     elif not set({'id', 'test', 'appointment', 'grab', 'status'}).issubset(
-            timegrid.columns
+            history.columns
     ):
-        print('WARNING: input variable "timegrid" is missing columns.')
+        print('WARNING: input variable "history" is missing columns.')
         print(
             '(Must contain: "id", "test", "appointment", "grab", "status".'
         )
-        return timegrid.copy()
+        return history.copy()
     else:
         None
-    activity = timegrid.copy()
+    activity = history.copy()
 
     activity['action'] = \
         activity['status'].apply(
@@ -456,16 +509,36 @@ def get_activity(timegrid):
             "book" if action == -1 else "none")
     )
 
-    activity = activity[['id', 'test', 'appointment', 'grab', 'action']]
+    activity['previous grab'] = \
+        activity.groupby(
+            ['id', 'test', 'appointment']
+        )['grab'].shift(1)
+    activity['previous grab'].fillna(activity['grab'], inplace=True)
+
+    activity = activity[[
+        'id',
+        'test',
+        'appointment',
+        'grab',
+        'previous grab',
+        'action'
+    ]]
     activity = activity.query('action != "none"')
+
+    # activity.reset_index(drop=True, inplace=True)
 
     return activity
 
 
-def get_occupancy(timegrid):
+def get_occupancy(history):
+    """Calculate occupancy rate of appointments.
 
-    occupancy = timegrid.loc[
-        timegrid.index,
+    In progress.
+
+    """
+
+    occupancy = history.loc[
+        history.index,
         ['id', 'test', 'appointment', 'final status']
     ]
 
@@ -845,8 +918,6 @@ def get_date_range(s, freq="D"):
     return date_range
 
 
-
-
 if __name__ == "__main__":
     print("")
 
@@ -883,18 +954,8 @@ if __name__ == "__main__":
 
     # Test first "by hand"
     s = schedule.copy()
-    t = get_timegrid(s)
-    f = get_final_status(t)
-    a = get_activity(t)
+    h = get_history(s)
+    f = get_final_status(h)
+    a = get_activity(h)
 
-
-    # uhcw = UHCW(schedule)
-    # uhcw.build_timegrid()
-
-    # uhcw.build_occupancy()
-    # occ = get_occupancy(t)
-
-    # uhcw = UHCW(schedule)
-    # s = uhcw.schedule
-    # uhcw.build_timegrid()
-    # t = uhcw.timegrid
+    center_info = get_center_info(schedule)
