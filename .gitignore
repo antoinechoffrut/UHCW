@@ -2,6 +2,7 @@
 *.*
 */
 !.gitignore
+!/images
 !/datasets
 !online-posting-period-distribution.png
 !number-of-records-per-center-distribution.png
