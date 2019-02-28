@@ -3,12 +3,9 @@
 */
 !.gitignore
 !/images
-!/datasets
-!online-posting-period-distribution.png
-!number-of-records-per-center-distribution.png
-!center-10207-Blood-Test-booking-history.png
-!center-10207-Blood-Test-final-status.png
-!center-10207-Blood-Test-booking-activity.png
+!centers.csv
+!appointments-tiny.csv
+!appointments-less-tiny.csv
 !UHCW-scraping.py
 !UHCW.py
 !UHCW-create-master.py
@@ -16,4 +13,3 @@
 !UHCW_understanding.ipynb
 !UHCW-booking-history.ipynb
 !UHCW_reconstruction.ipynb
-!UHCW-swift-screenshot.png
