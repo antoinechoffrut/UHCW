@@ -2,9 +2,7 @@
 *.*
 */
 !.gitignore
-!appointments-tiny.csv
-!appointments-less-tiny.csv
-!centers.csv
+!/datasets
 !online-posting-period-distribution.png
 !number-of-records-per-center-distribution.png
 !center-10207-Blood-Test-booking-history.png
