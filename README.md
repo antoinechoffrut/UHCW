@@ -10,7 +10,7 @@ booking of blood test appointments in Coventry (UK) from 18
 participating test centers.
 
 <p align="center">
-b<img src="UHCW-swift-screenshot.png" alt="UHCW online appointment system" width="400"/>
+b<img src="./images/UHCW-swift-screenshot.png" alt="UHCW online appointment system" width="400"/>
 </p>
 
 
@@ -55,14 +55,14 @@ Jupyter notebook `UHCW_understanding.ipynb`.
   of records varies across test centers, as depicted in the figure
   below.  
   <p align="center"> 
-  <img src="number-of-records-per-center-distribution.png" alt="Distribution,
+  <img src="./images/number-of-records-per-center-distribution.png" alt="Distribution,
   across test centers, of number of records" width="1000"/>
   </p>
 - The centers open their appointments for booking with a varying
   number of days ahead of time, between 52 and 125.  The distribution,
   across the test centers, is depicted in the figure below.  
   <p align="center"> 
-  <img src="online-posting-period-distribution.png" alt="Distribution,
+  <img src="./images/online-posting-period-distribution.png" alt="Distribution,
   across test centers, of number of days appointments go online prior to
   appointment date" width="1000"/>
   </p>
@@ -75,7 +75,7 @@ times.  The figure below shows the booking history for one center and
 test type.  
 
 <p align="center">
-<img src="center-10207-Blood-Test-booking-history.png" alt="Timeline of available appointments at center 10207" width="1000"/>
+<img src="./images/center-10207-Blood-Test-booking-history.png" alt="Timeline of available appointments at center 10207" width="1000"/>
 </p>
 
 The figure only shows the booking history for appointments which have
@@ -90,7 +90,7 @@ or left unused.  The figure below shows that final status
 corresponding to the booking history above.  
 
 <p align="center">
-<img src="center-10207-Blood-Test-final-status.png" alt="Final status of appointments at center 10207" width="1000"/>
+<img src="./images/center-10207-Blood-Test-final-status.png" alt="Final status of appointments at center 10207" width="1000"/>
 </p>
 
 
@@ -102,7 +102,7 @@ the figures above.  Note however that it shows activity for
 appointments in the future.
 
 <p align="center">
-<img src="center-10207-Blood-Test-booking-activity.png" alt="Booking activity of appointments at center 10207" width="1000"/>
+<img src="./images/center-10207-Blood-Test-booking-activity.png" alt="Booking activity of appointments at center 10207" width="1000"/>
 </p>
 
 
