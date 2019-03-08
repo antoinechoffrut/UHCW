@@ -61,6 +61,23 @@ def prepare_UHCW_dataframe(raw_data):
         datetime.datetime.now().strftime(FMT_TIME)
     ))
     schedule = raw_data.copy()
+    schedule.drop_duplicates(inplace=True)
+    schedule.rename(
+        index=str,
+        columns={
+            'center id': 'id',
+            'center age group': 'age group',
+            'test type': 'test',
+            'appointment timestamp': 'appointment',
+            'grab timestamp': 'grab'
+        },
+        inplace=True
+    )
+    schedule.sort_values(
+        ['id', 'test', 'appointment', 'grab'],
+        inplace=True
+    )
+    schedule.reset_index(inplace=True, drop=True)
 
     print("{0}: Type conversion: ".format(
         datetime.datetime.now().strftime(FMT_TIME)
@@ -68,11 +85,11 @@ def prepare_UHCW_dataframe(raw_data):
     print("{0}: Column appointment:".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
-    print("{0}: Convert to datetime...".format(
+    print("{0}: -> convert to datetime...".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
     schedule['appointment'] = pd.to_datetime(schedule['appointment'])
-    print("{0}: Convert to London timezone...".format(
+    print("{0}: -> convert to London timezone...".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
     schedule['appointment'] = schedule['appointment'].apply(
@@ -82,11 +99,11 @@ def prepare_UHCW_dataframe(raw_data):
     print("{0}: Column grab:".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
-    print("{0}: Convert to datetime...".format(
+    print("{0}: -> convert to datetime...".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
     schedule['grab'] = pd.to_datetime(schedule['grab'])
-    print("{0}: Localize to UTC and convert to London timezone...".format(
+    print("{0}: -> localize to UTC and convert to London timezone...".format(
         datetime.datetime.now().strftime(FMT_TIME)
     ))
     schedule['grab'] = schedule['grab'].apply(
@@ -475,27 +492,27 @@ def get_activity(history):
         None
     activity = history.copy()
 
-    activity['action'] = \
+    activity['numeric'] = \
         activity['status'].apply(
             lambda status: 1 if status == 'available' else 0
         )
 
     activity['forward'] = activity.groupby(
         ['id', 'test', 'appointment']
-    )['action'].shift(1)
-    activity['forward'].fillna(activity['action'], inplace=True)
+    )['numeric'].shift(1)
+    activity['forward'].fillna(activity['numeric'], inplace=True)
     activity['forward'] = activity['forward'].astype(int)
-    activity['f diff'] = activity['forward'] - activity['action']
+    activity['f diff'] = activity['forward'] - activity['numeric']
     activity['f diff'] = activity['f diff'].apply(
         lambda diff: 1 if diff == 1 else 0
     )
 
     activity['backward'] = activity.groupby(
         ['id', 'test', 'appointment']
-    )['action'].shift(-1)
-    activity['backward'].fillna(activity['action'], inplace=True)
+    )['numeric'].shift(-1)
+    activity['backward'].fillna(activity['numeric'], inplace=True)
     activity['backward'] = activity['backward'].astype(int)
-    activity['b diff'] = activity['backward'] - activity['action']
+    activity['b diff'] = activity['backward'] - activity['numeric']
     activity['b diff'] = activity['b diff'].apply(
         lambda diff: 1 if diff == 1 else 0
     )
@@ -503,18 +520,19 @@ def get_activity(history):
     activity['b diff'].fillna(0, inplace=True)
     activity['b diff'] = activity['b diff'].astype(int)
 
-    activity['action'] = activity['f diff'] - activity['b diff']
-    activity['action'] = activity['action'].apply(
-        lambda action: "cancel" if action == 1 else (
-            "book" if action == -1 else "none")
+    activity['numeric'] = activity['f diff'] - activity['b diff']
+    activity['action'] = activity['numeric'].apply(
+        lambda numeric: "cancel" if numeric == -1 else (
+            "book" if numeric == 1 else "none")
     )
 
     activity['previous grab'] = \
         activity.groupby(
             ['id', 'test', 'appointment']
         )['grab'].shift(1)
-    activity['previous grab'].fillna(activity['grab'], inplace=True)
-
+    activity['previous grab'].fillna(method='bfill', inplace=True)
+    activity['previous grab'] = \
+        activity['previous grab'].apply(lambda ts: ts.tz_localize(tz_london))
     activity = activity[[
         'id',
         'test',
@@ -921,9 +939,9 @@ def get_date_range(s, freq="D"):
 if __name__ == "__main__":
     print("")
 
-    foldername = 'Projects/UHCW'
-    filename = 'appointments-tiny.csv'
-    # filename = 'appointments-less-tiny.csv'
+    foldername = 'Projects/UHCW/datasets'
+    # filename = 'appointments-tiny.csv'
+    filename = 'appointments-less-tiny.csv'
     # filename = 'appointments-one-week-two-centers.csv'
     # filename = 'appointments-24-hours.csv'
     # filename = 'appointments-one-week.csv'
@@ -932,20 +950,32 @@ if __name__ == "__main__":
 
     filepath = os.path.join(os.path.expanduser("~"), foldername, filename)
 
-    raw_data = pd.read_csv(filepath, sep=';')
-    raw_data.rename(
-        index=str,
-        columns={
-            'center id': 'id',
-            'test type': 'test',
-            'appointment timestamp': 'appointment',
-            'center age group': 'age group',
-            'grab timestamp': 'grab'
-        },
-        inplace=True
-    )
+    raw_data = pd.read_csv(filepath, sep=';', index_col=0)
+
+    # raw_data = raw_data[['id', 'test', 'appointment', 'grab']]
 
     schedule = prepare_UHCW_dataframe(raw_data)
+
+    last_grab = schedule['grab'].max()
+    s = schedule.query('appointment <= @last_grab').copy()
+    s.drop('age group', axis=1, inplace=True)
+
+    cid = 10188
+    test_type = 'Blood Test'
+
+    s0 = s.loc[(s['id'] == cid) & (s['test'] == test_type), s.columns]
+
+    h0 = get_history(s0)
+    f0 = get_final_status(h0)
+    a0 = get_activity(h0)
+    b0 = a0.groupby(['id', 'test', 'appointment'])['grab'].min().reset_index()
+
+    c0 = pd.merge(
+        left=b0,
+        right=a0[['id', 'test', 'appointment', 'grab', 'action']],
+        on=['id', 'test', 'appointment', 'grab'],
+        how='left'
+    )
 
     # Calculate number of appointments
     schedule.groupby(

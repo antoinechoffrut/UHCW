@@ -6,7 +6,7 @@
 The [University Hospitals - Coventry &
 Warwickshire](https://www.uhcw.nhs.uk) (UHCW) has set up a [web
 portal](https://www.swiftqueue.co.uk/uhcw.php) to facilitate the
-booking of blood test appointments in Coventry (UK) from 18
+booking of blood test appointments in Coventry (UK) at 18
 participating test centers.
 
 <p align="center">
@@ -26,14 +26,17 @@ of questions.
 1. Are there any salient patterns in the booking and cancellation
    behavior of the patients?
 
-**Note.** This project is in its preliminary phase.  For speed, we
-work with a relatively small subset of the full dataset.
 
-## Understanding the UHCW dataset
+## Preliminary results  
+This project is in its preliminary phase.  For speed, we work with a
+relatively small subset of the full dataset.  
+
+
+### Understanding the UHCW dataset
 Details about the datasets, `appointments.csv` and `centers.csv`, are given below.  
 
 Following is a summary of preliminary findings obtained from the
-Jupyter notebook `UHCW_understanding.ipynb`.
+Jupyter notebook `UHCW-understanding.ipynb`.
 
 - There are:  
   - 18 test centers,  
@@ -50,7 +53,7 @@ Jupyter notebook `UHCW_understanding.ipynb`.
 - Most centers which deliver tests of multiple types put the
   appointments for all types at the same time.  
 - The test centers offer a varying number of appointments.  This fact
-  combine with the variability of the number of days these
+  combined with the variability of the number of days these
   appointments are available for online booking means that the number
   of records varies across test centers, as depicted in the figure
   below.  
@@ -68,9 +71,9 @@ Jupyter notebook `UHCW_understanding.ipynb`.
   </p>
 
 
-## Visualizing the booking history
+### The booking history
 The **booking history** traces the status of the appointments,
-i.e. whether it is "available" or "booked", across the data collection
+i.e. whether they are "available" or "booked", at all data collection
 times.  The figure below shows the booking history for one center and
 test type.  
 
@@ -78,15 +81,15 @@ test type.
 <img src="./images/center-10207-Blood-Test-booking-history.png" alt="Timeline of available appointments at center 10207" width="1000"/>
 </p>
 
-The figure only shows the booking history for appointments which have
+**Note.**  The figure only shows the booking history for appointments which have
 already passed, while the dataset actually contains information on
 their status in the future.
 
 
-## Visualizing the final status
+### The final status
 The **final status** refers to the last status before the appointment
 and therefore indicates whether the appointment was eventually booked
-or left unused.  The figure below shows that final status
+or left unused.  The figure below shows the final status
 corresponding to the booking history above.  
 
 <p align="center">
@@ -94,12 +97,11 @@ corresponding to the booking history above.
 </p>
 
 
-### Reconstructing the booking activity
+### The booking activity
 From the booking history, we can reconstruct the **booking activity**,
 which refers to the times when appointments were booked or cancelled.
-The figure below shows the booking activitiy for the same center as in
-the figures above.  Note however that it shows activity for
-appointments in the future.
+The figure below shows the booking activitiy for the same center and
+test type as in the figures above.  
 
 <p align="center">
 <img src="./images/center-10207-Blood-Test-booking-activity.png" alt="Booking activity of appointments at center 10207" width="1000"/>
@@ -151,19 +153,24 @@ contains data again for appointments on one day but two test centers,
 one of which administers multiple types of tests.  
 
 
-## Scripts and notebooks
+## Notebooks  
 
-- The script `UHCW_scraping.py` downloads the data hourly (most of the
-  time).  
-- The script `UHCW-create-master.py` aggregates the files generated
-  with `UHCW_scraping.py` into a single file, `appointments.csv`.  
-- The Jupyter notebook `UHCW_understanding.ipynb` helps to understand the UHCW
+- The Jupyter notebook `UHCW-understanding.ipynb` helps to understand the UHCW
   dataset.  
 - The Jupyter notebook `UHCW-booking-history.ipynb` provides a
-  visualization of the **booking history**, that is, whether an
-  appointment is booked or available at the data collection times.
-- The Jupyter notebook `UHCW_reconstruction.ipynb` reconstructs the
-  **booking activity**, that is, the times when an appointnent was
-  booked (thus disappearing from the dataset) or cancelled (when it reappears).  
-- The file `UHCW.py` contains custom functions and classes used in the
-  notebooks.  
+  visualization of  
+  - the **booking history**, that is, whether an appointment is booked
+    or available at all data collection times;
+  - the **final status** of the appointments, that is, whether the
+    appoinments were eventually booked or unused; and
+  - the **booking activity**, that is, the times when appointments are
+    booked (thus disappearing from the dataset) or cancelled
+    (when it reappears).    
+
+## Scripts  
+
+- The script `UHCW-scraping.py` downloads the data hourly (most of the
+  time).  
+- The script `UHCW-create-master.py` aggregates the files generated
+  with `UHCW-scraping.py` into a single file, `appointments.csv`.  
+- The file `UHCW.py` contains custom functions used in the notebooks.  

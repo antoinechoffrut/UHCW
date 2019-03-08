@@ -37,6 +37,10 @@ PROJECT_DIR = os.path.join(
     HOME_DIR,
     "Projects/UHCW"
 )
+SCRIPT_DIR = os.path.join(
+    PROJECT_DIR,
+    "python"
+)
 DATA_DIR = os.path.join(
     HOME_DIR,
     "Data",
@@ -429,9 +433,10 @@ def main():
     https://www.swiftqueue.co.uk/uhcw.php
     """
     SCRIPT_LOGGER.info("-"*60)
-    SCRIPT_LOGGER.info("New run of script {}.".format(THIS_SCRIPT_NAME))
+    SCRIPT_LOGGER.info("New run of script {}".format(THIS_SCRIPT_NAME))
+    SCRIPT_LOGGER.info("Directory of script: {}".format(THIS_SCRIPT_DIR))
     # SCRIPT_LOGGER.debug("Process id: %d." % os.getpid())
-    if not (THIS_SCRIPT_DIR == PROJECT_DIR):
+    if not (THIS_SCRIPT_DIR == SCRIPT_DIR):
         SCRIPT_LOGGER.warning(
             "This script is NOT in the correct directory: {}".format(
                 PROJECT_DIR
@@ -480,8 +485,8 @@ def main():
         # run_time.strftime(FMT_LOG)
         run_time.astimezone(TZ_LONDON).strftime(FMT_LOG)
     )
-    run_logger.info("Running script %s." % THIS_SCRIPT_NAME)
-    run_logger.debug("Directory: %s." % THIS_SCRIPT_DIR)
+    run_logger.info("Running script %s" % THIS_SCRIPT_NAME)
+    run_logger.debug("Directory: %s" % THIS_SCRIPT_DIR)
     run_logger.info("Logfile: %s", run_log)
     run_logger.info("~"*60)
 

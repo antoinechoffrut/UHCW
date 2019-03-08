@@ -1,15 +1,18 @@
-*Python*
+\**\*
+*~
 *.*
-*/
+/*/*
+
+# The following for extra safety:
+# datasets can be too large to be pushed
+# can become a nightmare to remove from history
+# if accidentally committed
+/datasets/*
+
 !.gitignore
-!/images
-!centers.csv
-!appointments-tiny.csv
-!appointments-less-tiny.csv
-!UHCW-scraping.py
-!UHCW.py
-!UHCW-create-master.py
 !README.md
-!UHCW_understanding.ipynb
-!UHCW-booking-history.ipynb
-!UHCW_reconstruction.ipynb
+!/datasets/appointments-*tiny.csv
+!/datasets/centers.csv
+!/images/*.png
+!/python/*.py
+!/notebooks/*.ipynb
